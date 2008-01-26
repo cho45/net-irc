@@ -84,6 +84,13 @@ class Net::IrcTest < Test::Unit::TestCase
 
 				post nil, RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
 				post nil, NOTICE, "#test", "sep3"
+
+				post nil, RPL_NAMREPLY, client.prefix.nick, "@", "#test1", "foo1 foo2 foo3 @foo4 +foo5"
+				post "foo4!foo@localhost", QUIT, "message"
+				post "foo5!foo@localhost", PART, "#test1", "message"
+				post client.prefix, KICK, "#test", "foo1", "message"
+				post client.prefix, MODE, "#test", "+o", "foo2"
+				post nil, NOTICE, "#test", "sep4"
 			end
 		end
 
@@ -111,6 +118,16 @@ class Net::IrcTest < Test::Unit::TestCase
 		assert c["#test"][:modes].include?(["s", nil])
 		assert c["#test"][:modes].include?(["o", "foo4"])
 		assert c["#test"][:modes].include?(["v", "foo5"])
+
+		while m = TestClient.testq.pop.to_s
+			break if m == "NOTICE #test sep4\r\n"
+		end
+		assert_equal ["foonick", "test1", "test2", "foo2", "foo3", "foo5"], c["#test"][:users]
+		assert_equal ["foo1", "foo2", "foo3"], c["#test1"][:users]
+		assert !c["#test"][:modes].include?(["o", "foo4"])
+		assert  c["#test"][:modes].include?(["v", "foo5"])
+		assert !c["#test1"][:modes].include?(["v", "foo5"])
+		assert  c["#test"][:modes].include?(["o", "foo2"])
 	end
 
 	class TestServerSession < Net::IRC::Server::Session

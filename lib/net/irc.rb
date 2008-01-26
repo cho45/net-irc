@@ -518,10 +518,10 @@ class Net::IRC::Client
 
 	# for managing channel
 	def on_kick(m)
-		users = m[2].split(/,/)
-		m[1].split(/,/).each do |chan|
+		users = m[1].split(/,/)
+		m[0].split(/,/).each do |chan|
 			init_channel(chan)
-			info = @channels[channel]
+			info = @channels[chan]
 			if info
 				users.each do |nick|
 					info[:users].delete(nick)
