@@ -444,7 +444,7 @@ class Net::IRC::Client
 
 	private
 	def request(command, *params)
-		@socket << Message.new(@prefix, command, params)
+		@socket << Message.new(nil, command, params)
 	end
 end # Client
 
@@ -575,17 +575,6 @@ class Net::IRC::Server
 	end
 end # Server
 
-__END__
-
-Thread.start do
-	Net::IRC::Server.new("localhost", 16669, Net::IRC::Server::Session).start
-end
-
-Net::IRC::Client.new("localhost", "16669", {
-	:nick => "chokan",
-	:user => "chokan",
-	:real => "chokan",
-}).start
 
 __END__
 
@@ -597,20 +586,17 @@ Net::IRC::Client.new("charlotte", "6669", {
 
 __END__
 class SimpleClient < Net::IRC::Client
-	def on_privmsg
+	def on_privmsg(m)
 		request(PRIVMSG, channel, "aaa")
 	end
 end
 
 class LingrIrcGateway < Net::IRC::Server::Session
-	def on_user
-		response(NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}")
-		response(NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}")
-		response(NAME, RPL_CREATED,  "This server was created #{Time.now}")
-		response(NAME, RPL_MYINFO,   "#{NAME} `Tynoq` v#{Version}")
+	def on_user(m)
+		super
 	end
 
-	def on_privmsg
+	def on_privmsg(m)
 	end
 end
 

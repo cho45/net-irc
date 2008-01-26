@@ -3,6 +3,7 @@ require File.dirname(__FILE__) + '/test_helper.rb'
 require "test/unit"
 class Net::IrcTest < Test::Unit::TestCase
 	include Net::IRC
+	include Constants
 
 	def test_constatns
 		welcome = Net::IRC::Constants.const_get("RPL_WELCOME")
@@ -27,7 +28,56 @@ class Net::IrcTest < Test::Unit::TestCase
 	end
 
 	def test_server
-		#server = Net::IRC::Server.new("localhost", 16669, Net::IRC::Server::Session)
-		#server.start
+
+		server, client = nil, nil
+		Thread.start do
+			server = Net::IRC::Server.new("localhost", 16669, TestServerSession)
+			server.start
+		end
+
+		Thread.start do
+			client = Net::IRC::Client.new("localhost", "16669", {
+				:nick => "chokan",
+				:user => "chokan",
+				:real => "chokan",
+			})
+			client.start
+		end
+
+		assert_equal "chokan!chokan@localhost", TestServerSession.testq.pop
+		client.instance_eval do
+			request PRIVMSG, "#channel", "message a b c"
+		end
+
+		message = TestServerSession.testq.pop
+		assert_instance_of Net::IRC::Message, message
+		assert_equal "PRIVMSG #channel :message a b c\r\n", message.to_s
+	end
+
+	class TestServerSession < Net::IRC::Server::Session
+		@@testq = SizedQueue.new(1)
+		@@instance = nil
+
+		def self.testq
+			@@testq
+		end
+
+		def self.instance
+			@@instance
+		end
+
+		def initialize(*args)
+			super
+			@@instance = self
+		end
+
+		def on_user(m)
+			super
+			@@testq << @mask
+		end
+
+		def on_privmsg(m)
+			@@testq << m
+		end
 	end
 end
