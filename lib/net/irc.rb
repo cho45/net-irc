@@ -11,6 +11,74 @@ module Net::IRC
 	VERSION = "0.0.0"
 	class IRCException < StandardError; end
 
+	module PATTERN
+		# letter     =  %x41-5A / %x61-7A       ; A-Z / a-z
+		# digit      =  %x30-39                 ; 0-9
+		# hexdigit   =  digit / "A" / "B" / "C" / "D" / "E" / "F"
+		# special    =  %x5B-60 / %x7B-7D
+		#                  ; "[", "]", "\", "`", "_", "^", "{", "|", "}"
+		LETTER   = 'A-Za-z'
+		DIGIT    = '\d'
+		HEXDIGIT = "#{DIGIT}A-Fa-f"
+		SPECIAL  = '\x5B-\x60\x7B-\x7D'
+
+		# shortname  =  ( letter / digit ) *( letter / digit / "-" )
+		#               *( letter / digit )
+		#                 ; as specified in RFC 1123 [HNAME]
+		# hostname   =  shortname *( "." shortname )
+		SHORTNAME = "[#{LETTER}#{DIGIT}](?:[-#{LETTER}#{DIGIT}]*[#{LETTER}#{DIGIT}])?"
+		HOSTNAME  = "#{SHORTNAME}(?:\\.#{SHORTNAME})*"
+
+		# servername =  hostname
+		SERVERNAME = HOSTNAME
+
+		# nickname   =  ( letter / special ) *8( letter / digit / special / "-" )
+		#NICKNAME = "[#{LETTER}#{SPECIAL}\\w][-#{LETTER}#{DIGIT}#{SPECIAL}]*"
+		NICKNAME = "\\S+" # for multibytes
+
+		# user       =  1*( %x01-09 / %x0B-0C / %x0E-1F / %x21-3F / %x41-FF )
+		#                 ; any octet except NUL, CR, LF, " " and "@"
+		USER = '[\x01-\x09\x0B-\x0C\x0E-\x1F\x21-\x3F\x41-\xFF]+'
+
+		# ip4addr    =  1*3digit "." 1*3digit "." 1*3digit "." 1*3digit
+		IP4ADDR = "[#{DIGIT}]{1,3}(?:\\.[#{DIGIT}]{1,3}){3}"
+		# ip6addr    =  1*hexdigit 7( ":" 1*hexdigit )
+		# ip6addr    =/ "0:0:0:0:0:" ( "0" / "FFFF" ) ":" ip4addr
+		IP6ADDR = "(?:[#{HEXDIGIT}]+(?::[#{HEXDIGIT}]+){7}|0:0:0:0:0:(?:0|FFFF):#{IP4ADDR})"
+		# hostaddr   =  ip4addr / ip6addr
+		HOSTADDR = "(?:#{IP4ADDR}|#{IP6ADDR})"
+
+		# host       =  hostname / hostaddr
+		HOST = "(?:#{HOSTNAME}|#{HOSTADDR})"
+
+		# prefix     =  servername / ( nickname [ [ "!" user ] "@" host ] )
+		PREFIX = "(?:#{NICKNAME}(?:(?:!#{USER})?@#{HOST})?|#{SERVERNAME})"
+
+		# nospcrlfcl =  %x01-09 / %x0B-0C / %x0E-1F / %x21-39 / %x3B-FF
+		#                 ; any octet except NUL, CR, LF, " " and ":"
+		NOSPCRLFCL = '\x01-\x09\x0B-\x0C\x0E-\x1F\x21-\x39\x3B-\xFF'
+
+		# command    =  1*letter / 3digit
+		COMMAND = "(?:[#{LETTER}]+|[#{DIGIT}]{3})"
+
+		# SPACE      =  %x20        ; space character
+		# middle     =  nospcrlfcl *( ":" / nospcrlfcl )
+		# trailing   =  *( ":" / " " / nospcrlfcl )
+		# params     =  *14( SPACE middle ) [ SPACE ":" trailing ]
+		#            =/ 14( SPACE middle ) [ SPACE [ ":" ] trailing ]
+		MIDDLE = "[#{NOSPCRLFCL}][:#{NOSPCRLFCL}]*"
+		TRAILING = "[: #{NOSPCRLFCL}]*"
+		PARAMS = "(?:((?: #{MIDDLE}){0,14})(?: :(#{TRAILING}))?|((?: #{MIDDLE}){14})(?::?)?(#{TRAILING}))"
+
+		# crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
+		# message    =  [ ":" prefix SPACE ] command [ params ] crlf
+		CRLF = '\x0D\x0A'
+		MESSAGE = "(?::(#{PREFIX}) )?(#{COMMAND})#{PARAMS}#{CRLF}"
+
+		CLIENT_PATTERN  = /\A#{NICKNAME}(?:(?:!#{USER})?@#{HOST})\z/on
+		MESSAGE_PATTERN = /\A#{MESSAGE}\z/on
+	end # PATTERN
+
 	module Constants
 		RPL_WELCOME           = '001'
 		RPL_YOURHOST          = '002'
@@ -225,78 +293,32 @@ module Net::IRC
 		r[Constants.const_get(i)] = i
 		r
 	}
+
+	class Prefix < String
+		def nick
+			_match[1]
+		end
+		
+		def user
+			_match[2]
+		end
+		
+		def host
+			_match[3]
+		end
+		
+		private
+		def _match
+			self[/^([^\s!]+)!([^\s@]+)@(\S+)$/]
+		end
+	end
 end
 
 class Net::IRC::Message
+	include Net::IRC
+
 	class InvalidMessage < Net::IRC::IRCException; end
 
-	module PATTERN
-		# letter     =  %x41-5A / %x61-7A       ; A-Z / a-z
-		# digit      =  %x30-39                 ; 0-9
-		# hexdigit   =  digit / "A" / "B" / "C" / "D" / "E" / "F"
-		# special    =  %x5B-60 / %x7B-7D
-		#                  ; "[", "]", "\", "`", "_", "^", "{", "|", "}"
-		LETTER   = 'A-Za-z'
-		DIGIT    = '\d'
-		HEXDIGIT = "#{DIGIT}A-Fa-f"
-		SPECIAL  = '\x5B-\x60\x7B-\x7D'
-
-		# shortname  =  ( letter / digit ) *( letter / digit / "-" )
-		#               *( letter / digit )
-		#                 ; as specified in RFC 1123 [HNAME]
-		# hostname   =  shortname *( "." shortname )
-		SHORTNAME = "[#{LETTER}#{DIGIT}](?:[-#{LETTER}#{DIGIT}]*[#{LETTER}#{DIGIT}])?"
-		HOSTNAME  = "#{SHORTNAME}(?:\\.#{SHORTNAME})*"
-
-		# servername =  hostname
-		SERVERNAME = HOSTNAME
-
-		# nickname   =  ( letter / special ) *8( letter / digit / special / "-" )
-		#NICKNAME = "[#{LETTER}#{SPECIAL}\\w][-#{LETTER}#{DIGIT}#{SPECIAL}]*"
-		NICKNAME = "\\S+" # for multibytes
-
-		# user       =  1*( %x01-09 / %x0B-0C / %x0E-1F / %x21-3F / %x41-FF )
-		#                 ; any octet except NUL, CR, LF, " " and "@"
-		USER = '[\x01-\x09\x0B-\x0C\x0E-\x1F\x21-\x3F\x41-\xFF]+'
-
-		# ip4addr    =  1*3digit "." 1*3digit "." 1*3digit "." 1*3digit
-		IP4ADDR = "[#{DIGIT}]{1,3}(?:\\.[#{DIGIT}]{1,3}){3}"
-		# ip6addr    =  1*hexdigit 7( ":" 1*hexdigit )
-		# ip6addr    =/ "0:0:0:0:0:" ( "0" / "FFFF" ) ":" ip4addr
-		IP6ADDR = "(?:[#{HEXDIGIT}]+(?::[#{HEXDIGIT}]+){7}|0:0:0:0:0:(?:0|FFFF):#{IP4ADDR})"
-		# hostaddr   =  ip4addr / ip6addr
-		HOSTADDR = "(?:#{IP4ADDR}|#{IP6ADDR})"
-
-		# host       =  hostname / hostaddr
-		HOST = "(?:#{HOSTNAME}|#{HOSTADDR})"
-
-		# prefix     =  servername / ( nickname [ [ "!" user ] "@" host ] )
-		PREFIX = "(?:#{NICKNAME}(?:(?:!#{USER})?@#{HOST})?|#{SERVERNAME})"
-
-		# nospcrlfcl =  %x01-09 / %x0B-0C / %x0E-1F / %x21-39 / %x3B-FF
-		#                 ; any octet except NUL, CR, LF, " " and ":"
-		NOSPCRLFCL = '\x01-\x09\x0B-\x0C\x0E-\x1F\x21-\x39\x3B-\xFF'
-
-		# command    =  1*letter / 3digit
-		COMMAND = "(?:[#{LETTER}]+|[#{DIGIT}]{3})"
-
-		# SPACE      =  %x20        ; space character
-		# middle     =  nospcrlfcl *( ":" / nospcrlfcl )
-		# trailing   =  *( ":" / " " / nospcrlfcl )
-		# params     =  *14( SPACE middle ) [ SPACE ":" trailing ]
-		#            =/ 14( SPACE middle ) [ SPACE [ ":" ] trailing ]
-		MIDDLE = "[#{NOSPCRLFCL}][:#{NOSPCRLFCL}]*"
-		TRAILING = "[: #{NOSPCRLFCL}]*"
-		PARAMS = "(?:((?: #{MIDDLE}){0,14})(?: :(#{TRAILING}))?|((?: #{MIDDLE}){14})(?::?)?(#{TRAILING}))"
-
-		# crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
-		# message    =  [ ":" prefix SPACE ] command [ params ] crlf
-		CRLF = '\x0D\x0A'
-		MESSAGE = "(?::(#{PREFIX}) )?(#{COMMAND})#{PARAMS}#{CRLF}"
-
-		CLIENT_PATTERN  = /\A#{NICKNAME}(?:(?:!#{USER})?@#{HOST})\z/on
-		MESSAGE_PATTERN = /\A#{MESSAGE}\z/on
-	end # PATTERN
 
 	attr_reader :prefix, :command, :params
 
@@ -398,6 +420,7 @@ class Net::IRC::Client
 			begin
 				m = Message.parse(l)
 				@log.debug m.inspect
+				next if on_message(m) === true
 				name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
 				send(name, m) if respond_to?(name)
 			rescue Message::InvalidMessage
@@ -413,10 +436,10 @@ class Net::IRC::Client
 	end
 
 	def on_rpl_whoisuser(m)
-		if params[1] == @nick
-			@prefix = Chokan::Prefix.new("#{params[1]}!#{params[2]}@#{params[3]}")
-		end
-		[prefix, params[1], params[2], params[3]]
+		@prefix = Prefix.new("#{m[1]}!#{m[2]}@#{m[3]}") if m[1] == @opts.nick
+	end
+
+	def on_message(m)
 	end
 
 	private
@@ -441,8 +464,8 @@ class Net::IRC::Server
 		@accept = Thread.start do
 			loop do
 				Thread.start(@serv.accept) do |s|
-					@sockets << s
 					begin
+						@sessions << s
 						@log.info "Client connected, new session starting..."
 						s = @session_class.new(self, s, @log)
 						@sessions << s
@@ -474,8 +497,13 @@ class Net::IRC::Server
 		include Net::IRC
 		include Constants
 
+		Version                = "0.0.0"
+		NAME                   = "Net::IRC::Server::Session"
+		AVAIABLE_USER_MODES    = "eixwy"
+		AVAIABLE_CHANNEL_MODES = "spknm"
+
 		def initialize(server, socket, logger)
-			@server, @socket, @logger = server, socket, logger
+			@server, @socket, @log = server, socket, logger
 		end
 
 		def self.start(*args)
@@ -488,6 +516,7 @@ class Net::IRC::Server
 				begin
 					m = Message.parse(l)
 					@log.debug m.inspect
+					next if on_message(m) === true
 					if m.command == QUIT
 						on_quit if respond_to?(:on_quit)
 						break
@@ -517,9 +546,10 @@ class Net::IRC::Server
 
 		def on_user(m)
 			@login, @real = m.params[0], m.params[3]
-			@host = @s.peeraddr[2]
-			@mask = "#{@nick}!#{@login}@#{@host}"
+			@host = @socket.peeraddr[2]
+			@mask = Prefix.new("#{@nick}!#{@login}@#{@host}")
 			@real, *@opts = @real.split(/\s/)
+			inital_message
 		end
 
 		def on_connect
@@ -528,13 +558,36 @@ class Net::IRC::Server
 		def on_quit
 		end
 
+		def on_message(m)
+		end
+
 		private
-		def response(prefix, comamnd, *params)
+		def response(prefix, command, *params)
 			@socket << Message.new(prefix, command, params)
+		end
+
+		def inital_message
+			response NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}"
+			response NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}"
+			response NAME, RPL_CREATED,  "This server was created #{Time.now}"
+			response NAME, RPL_MYINFO,   "#{NAME} #{Version} #{AVAIABLE_USER_MODES} #{AVAIABLE_CHANNEL_MODES}"
 		end
 	end
 end # Server
 
+__END__
+
+Thread.start do
+	Net::IRC::Server.new("localhost", 16669, Net::IRC::Server::Session).start
+end
+
+Net::IRC::Client.new("localhost", "16669", {
+	:nick => "chokan",
+	:user => "chokan",
+	:real => "chokan",
+}).start
+
+__END__
 
 Net::IRC::Client.new("charlotte", "6669", {
 	:nick => "chokan",
