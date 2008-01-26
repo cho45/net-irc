@@ -174,7 +174,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def log(str)
 		str.gsub!(/\s/, " ")
-		post nil, "NOTICE", @nick, str
+		post nil, NOTICE, @nick, str
 	end
 
 	def make_ids(o)

@@ -646,8 +646,8 @@ class Net::IRC::Server
 
 		@@name                   = "Net::IRC::Server::Session"
 		@@version                = "0.0.0"
-		@@avaiable_user_modes    = "EIXWY"
-		@@avaiable_channel_modes = "SPKNM"
+		@@avaiable_user_modes    = "eixwy"
+		@@avaiable_channel_modes = "spknm"
 
 		def initialize(server, socket, logger, opts={})
 			@server, @socket, @log, @opts = server, socket, logger, opts
