@@ -13,6 +13,7 @@ require "time"
 require "logger"
 require "yaml"
 require "pathname"
+require "digest/md5"
 
 Net::HTTP.version_1_2
 
@@ -192,18 +193,24 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			time = Time.parse(s["created_at"]) rescue Time.now
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
-			@log.debug [nick, mesg, time].inspect
-			if nick == @nick # 自分のときは topic に
-				post nick, TOPIC, @@channel, mesg
-			else
-				message(nick, @@channel, mesg)
-			end
-			@groups.each do |channel,members|
-				if members.include?(nick)
-					message(nick, channel, mesg)
+
+			digest = Digest::MD5.hexdigest("#{nick}::#{mesg}")
+			unless @timeline.include?(digest)
+				@timeline << digest
+				@log.debug [nick, mesg, time].inspect
+				if nick == @nick # 自分のときは topic に
+					post nick, TOPIC, @@channel, mesg
+				else
+					message(nick, @@channel, mesg)
+				end
+				@groups.each do |channel,members|
+					if members.include?(nick)
+						message(nick, channel, mesg)
+					end
 				end
 			end
 		end
+		@timeline  = @timeline.last(100)
 		@prev_time = Time.now
 	end
 
