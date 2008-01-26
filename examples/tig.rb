@@ -1,4 +1,43 @@
 #!/usr/bin/env ruby
+=begin
+
+# tig.rb
+
+Ruby version of Twitter IRC Gateway
+( http://www.misuzilla.org/dist/net/twitterircgateway/ )
+
+
+## Client opts
+
+Options specified by after irc realname.
+
+Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+
+	twitter {
+		host: localhost
+		port: 16668
+		name: username@example.com athack
+		password: password on twitter
+		in-encoding: utf8
+		out-encoding: utf8
+	}
+
+### athack
+
+If `athack` client options specified,
+all nick in join message is leading with @.
+
+So if you complemente nicks (ex. irssi),
+it's good for twitter like reply command (@nick).
+
+In this case, you will see torrent of join messages after connected,
+because NAMES list can't send @ leading nick (it interpreted op.)
+
+## Licence
+
+Ruby's by cho45
+
+=end
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
