@@ -296,20 +296,20 @@ module Net::IRC
 
 	class Prefix < String
 		def nick
-			_match[1]
+			extract[1]
 		end
-		
+
 		def user
-			_match[2]
+			extract[2]
 		end
-		
+
 		def host
-			_match[3]
+			extract[3]
 		end
-		
-		private
-		def _match
-			self.match(/^([^\s!]+)!([^\s@]+)@(\S+)$/)
+
+		def extract
+			_, *ret = *self.match(/^([^\s!]+)!([^\s@]+)@(\S+)$/)
+			ret
 		end
 	end
 end
@@ -363,10 +363,8 @@ class Net::IRC::Message
 
 	def to_s
 		str = ""
-		unless @prefix.empty?
-			str << ":#{@prefix} "
-		end
 
+		str << ":#{@prefix} " unless @prefix.empty?
 		str << @command
 
 		if @params
@@ -449,8 +447,14 @@ class Net::IRC::Client
 		@prefix = Prefix.new("#{m[1]}!#{m[2]}@#{m[3]}") if m[1] == @opts.nick
 	end
 
+	# ping
+	def on_ping(m)
+		post PONG, @nick
+	end
+
 	# for managing channel
 	def on_rpl_namreply(m)
+		type    = m[1]
 		channel = m[2]
 		init_channel(channel)
 
@@ -461,12 +465,22 @@ class Net::IRC::Client
 			@channels[channel][:users].uniq!
 
 			case mode
-			when "@"
+			when "@" # channel operator
 				@channels[channel][:modes] << ["o", nick]
-			when "+"
+			when "+" # voiced (under moderating mode)
 				@channels[channel][:modes] << ["v", nick]
 			end
 		end
+
+		case type
+		when "@" # secret
+			@channels[channel][:modes] << ["s", nil]
+		when "*" # private
+			@channels[channel][:modes] << ["p", nil]
+		when "=" # public
+		end
+
+		@channels[channel][:modes].uniq!
 	end
 
 	# for managing channel
@@ -486,7 +500,31 @@ class Net::IRC::Client
 
 	# for managing channel
 	def on_quit(m)
-		on_part(m)
+		nick = m.prefix.nick
+
+		@channels.each do |channel, info|
+			info[:users].delete(nick)
+			info[:modes].delete_if {|u|
+				u[1] == nick
+			}
+		end
+	end
+
+	# for managing channel
+	def on_kick(m)
+		users = m[2].split(/,/)
+		m[1].split(/,/).each do |chan|
+			init_channel(chan)
+			info = @channels[channel]
+			if info
+				users.each do |nick|
+					info[:users].delete(nick)
+					info[:modes].delete_if {|u|
+						u[1] == nick
+					}
+				end
+			end
+		end
 	end
 
 	# for managing channel
