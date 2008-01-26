@@ -467,7 +467,7 @@ class Net::IRC::Server
 					begin
 						@sessions << s
 						@log.info "Client connected, new session starting..."
-						s = @session_class.new(self, s, @log)
+						s = @session_class.new(self, s, @log, @opts)
 						@sessions << s
 						s.start
 					rescue Exception => e
@@ -502,8 +502,8 @@ class Net::IRC::Server
 		@@avaiable_user_modes    = "EIXWY"
 		@@avaiable_channel_modes = "SPKNM"
 
-		def initialize(server, socket, logger)
-			@server, @socket, @log = server, socket, logger
+		def initialize(server, socket, logger, opts={})
+			@server, @socket, @log, @opts = server, socket, logger, opts
 		end
 
 		def self.start(*args)

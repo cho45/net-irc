@@ -161,16 +161,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				real = f["name"]
 				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, nil, channel
+			post nil, RPL_ENDOFWHO, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
 				f = @friends.find {|i| i["screen_name"] == name }
 				user = nick = f["screen_name"]
 				host = serv = @@api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, nil, channel, user, host, serv, nick, "H", "0 #{real}"
+				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, nil, channel
+			post nil, RPL_ENDOFWHO, channel
 		else
 			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
@@ -193,7 +193,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		return if channel == @@channel
 
 		@channels.delete(channel)
-		post @nick, "PART", channel, "Ignore group #{channel}, but setting is alive yet."
+		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
 	end
 
 	def on_invite(m)
@@ -215,7 +215,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		if (@friends || []).find {|i| i["screen_name"] == nick }
 			(@groups[channel] ||= []).delete(nick)
-			post nick, "PART", channel
+			post nick, PART, channel
 			save_config
 		else
 			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
