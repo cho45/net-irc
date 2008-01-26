@@ -25,6 +25,8 @@ class Net::IrcTest < Test::Unit::TestCase
 			end
 			assert_equal l, Message.new(m.prefix, m.command, m.params).to_s
 		end
+
+		assert_equal "NOTICE test\r\n", Message.new(nil, NOTICE, "test").to_s
 	end
 
 	def test_server

@@ -418,8 +418,8 @@ class Net::IRC::Client
 		post WHOIS, @opts.nick
 		while l = @socket.gets
 			begin
+				@log.debug l.chomp
 				m = Message.parse(l)
-				@log.debug m.inspect
 				next if on_message(m) === true
 				name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
 				send(name, m) if respond_to?(name)
@@ -459,7 +459,7 @@ class Net::IRC::Server
 
 	def start
 		@serv = TCPServer.new(@host, @port)
-		@log = Logger.new(@opts.out || $stdout)
+		@log  = Logger.new(@opts.out || $stdout)
 		@log.info "Host: #{@host} Port:#{@port}"
 		@accept = Thread.start do
 			loop do
@@ -497,10 +497,10 @@ class Net::IRC::Server
 		include Net::IRC
 		include Constants
 
-		Version                = "0.0.0"
-		NAME                   = "Net::IRC::Server::Session"
-		AVAIABLE_USER_MODES    = "eixwy"
-		AVAIABLE_CHANNEL_MODES = "spknm"
+		@@name                   = "Net::IRC::Server::Session"
+		@@version                = "0.0.0"
+		@@avaiable_user_modes    = "EIXWY"
+		@@avaiable_channel_modes = "SPKNM"
 
 		def initialize(server, socket, logger)
 			@server, @socket, @log = server, socket, logger
@@ -514,8 +514,8 @@ class Net::IRC::Server
 			on_connect
 			while l = @socket.gets
 				begin
+					@log.debug "RECEIVE: #{l.chomp}"
 					m = Message.parse(l)
-					@log.debug m.inspect
 					next if on_message(m) === true
 					if m.command == QUIT
 						on_quit if respond_to?(:on_quit)
@@ -548,7 +548,6 @@ class Net::IRC::Server
 			@login, @real = m.params[0], m.params[3]
 			@host = @socket.peeraddr[2]
 			@mask = Prefix.new("#{@nick}!#{@login}@#{@host}")
-			@real, *@opts = @real.split(/\s/)
 			inital_message
 		end
 
@@ -563,14 +562,16 @@ class Net::IRC::Server
 
 		private
 		def post(prefix, command, *params)
-			@socket << Message.new(prefix, command, params)
+			m = Message.new(prefix, command, params)
+			@log.debug "SEND: #{m.to_s.chomp}"
+			@socket << m
 		end
 
 		def inital_message
-			post NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}"
-			post NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}"
-			post NAME, RPL_CREATED,  "This server was created #{Time.now}"
-			post NAME, RPL_MYINFO,   "#{NAME} #{Version} #{AVAIABLE_USER_MODES} #{AVAIABLE_CHANNEL_MODES}"
+			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@mask}"
+			post nil, RPL_YOURHOST, @nick, "Your host is #{@@name}, running version #{@@version}"
+			post nil, RPL_CREATED,  @nick, "This server was created #{Time.now}"
+			post nil, RPL_MYINFO,   @nick, "#{@@name} #{@@version} #{@@avaiable_user_modes} #{@@avaiable_channel_modes}"
 		end
 	end
 end # Server
