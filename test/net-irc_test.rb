@@ -11,6 +11,7 @@ class Net::IrcTest < Test::Unit::TestCase
 		welcome = Net::IRC::Constants.const_get("RPL_WELCOME")
 		assert_equal "001", welcome
 		assert_equal "RPL_WELCOME", Net::IRC::COMMANDS[welcome]
+		assert_equal Net::IRC::Constants::RPL_WELCOME, welcome
 	end
 
 	def test_message

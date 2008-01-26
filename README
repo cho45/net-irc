@@ -15,13 +15,33 @@ IRC library. This is mostly conform to RFC1459 but partly not for convenience.
 
 === Gem Installation
 
-	gem install netirc
+	gem install net-irc
 
 
 == Features/Problems
 
 
 == Synopsis
+
+
+== IRC Gateways
+
+There are some gateways connecting to webservices.
+
+* Lingr
+* Twitter
+* Wasser
+
+If you want to run it, type following:
+
+Lingr:
+	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/lig.rb")'
+
+Twitter:
+	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/tig.rb")'
+
+Wasser:
+	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/wig.rb")'
 
 
 == Copyright

@@ -6,7 +6,15 @@ $LOAD_PATH << "../lib"
 require "rubygems"
 
 # http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb
-require 'api_client'
+begin
+	require "api_client"
+rescue LoadError
+	require "net/http"
+	File.open("api_client.rb", "w") do |f|
+		f.puts Net::HTTP.get("http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb")
+	end
+	require "api_client"
+end
 
 require "net/irc"
 require "pit"
@@ -181,7 +189,5 @@ end
 	"api_key" => "API key of lingr"
 })
 
-Net::IRC::Server.new("localhost", 16669, LingrIrcGateway, {
-	:api_key => @config["api_key"]
-}).start
+Net::IRC::Server.new("localhost", 16669, LingrIrcGateway, @config).start
 
