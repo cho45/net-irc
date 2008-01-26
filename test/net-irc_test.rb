@@ -32,7 +32,7 @@ class Net::IrcTest < Test::Unit::TestCase
 		assert_equal "NOTICE test\r\n", Message.new(nil, NOTICE, "test").to_s
 	end
 
-	def test_server
+	def test_server_client
 		port = rand(0xffff) + 1000
 
 		server, client = nil, nil
@@ -44,16 +44,24 @@ class Net::IrcTest < Test::Unit::TestCase
 		end
 
 		Thread.start do
-			client = Net::IRC::Client.new("localhost", port, {
-				:nick => "chokan",
-				:user => "chokan",
-				:real => "chokan",
+			client = TestClient.new("localhost", port, {
+				:nick => "foonick",
+				:user => "foouser",
+				:real => "foo real name",
+				:pass => "foopass",
 				:out  => StringIO.new,
 			})
 			client.start
 		end
 
-		assert_equal "chokan!chokan@localhost", TestServerSession.testq.pop
+		assert_equal "PASS foopass\r\n", TestServerSession.testq.pop.to_s
+		assert_equal "NICK foonick\r\n", TestServerSession.testq.pop.to_s
+		assert_equal "USER foouser 0 * :foo real name\r\n", TestServerSession.testq.pop.to_s
+		assert_equal "WHOIS foonick\r\n", TestServerSession.testq.pop.to_s
+
+		assert_equal "001 foonick :Welcome to the Internet Relay Network foonick!foouser@localhost\r\n", TestClient.testq.pop.to_s
+		assert_equal "002 foonick :Your host is Net::IRC::Server::Session, running version 0.0.0\r\n", TestClient.testq.pop.to_s
+
 		client.instance_eval do
 			post PRIVMSG, "#channel", "message a b c"
 		end
@@ -61,6 +69,48 @@ class Net::IrcTest < Test::Unit::TestCase
 		message = TestServerSession.testq.pop
 		assert_instance_of Net::IRC::Message, message
 		assert_equal "PRIVMSG #channel :message a b c\r\n", message.to_s
+
+		client.instance_variable_set(:@prefix, Prefix.new("foonick!foouser@localhost"))
+
+		# test channel management
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
+				post client.prefix, JOIN, "#test"
+				post nil, NOTICE, "#test", "sep1"
+
+				post "test1!test@localhost", JOIN, "#test"
+				post "test2!test@localhost", JOIN, "#test"
+				post nil, NOTICE, "#test", "sep2"
+
+				post nil, RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
+				post nil, NOTICE, "#test", "sep3"
+			end
+		end
+
+		while m = TestClient.testq.pop.to_s
+			break if m == "NOTICE #test sep1\r\n"
+		end
+
+		c = client.instance_variable_get(:@channels)
+		assert_instance_of Hash,  c
+		assert_instance_of Hash,  c["#test"]
+		assert_instance_of Array, c["#test"][:modes]
+		assert_instance_of Array, c["#test"][:users]
+		assert_equal ["foonick"], c["#test"][:users]
+
+		while m = TestClient.testq.pop.to_s
+			break if m == "NOTICE #test sep2\r\n"
+		end
+
+		assert_equal ["foonick", "test1", "test2"], c["#test"][:users]
+
+		while m = TestClient.testq.pop.to_s
+			break if m == "NOTICE #test sep3\r\n"
+		end
+		assert_equal ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"], c["#test"][:users]
+		assert c["#test"][:modes].include?(["s", nil])
+		assert c["#test"][:modes].include?(["o", "foo4"])
+		assert c["#test"][:modes].include?(["v", "foo5"])
 	end
 
 	class TestServerSession < Net::IRC::Server::Session
@@ -80,12 +130,29 @@ class Net::IrcTest < Test::Unit::TestCase
 			@@instance = self
 		end
 
-		def on_user(m)
-			super
-			@@testq << @mask
+		def on_message(m)
+			@@testq << m
+		end
+	end
+
+	class TestClient < Net::IRC::Client
+		@@testq = SizedQueue.new(1)
+		@@instance = nil
+
+		def self.testq
+			@@testq
 		end
 
-		def on_privmsg(m)
+		def self.instance
+			@@instance
+		end
+
+		def initialize(*args)
+			super
+			@@instance = self
+		end
+
+		def on_message(m)
 			@@testq << m
 		end
 	end

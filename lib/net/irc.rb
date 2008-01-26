@@ -296,15 +296,15 @@ module Net::IRC
 
 	class Prefix < String
 		def nick
-			extract[1]
+			extract[0]
 		end
 
 		def user
-			extract[2]
+			extract[1]
 		end
 
 		def host
-			extract[3]
+			extract[2]
 		end
 
 		def extract
@@ -401,6 +401,8 @@ class Net::IRC::Client
 	include Net::IRC
 	include Constants
 
+	attr_reader :prefix
+
 	def initialize(host, port, opts={})
 		@host = host
 		@port = port
@@ -427,6 +429,10 @@ class Net::IRC::Client
 				next if on_message(m) === true
 				name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
 				send(name, m) if respond_to?(name)
+			rescue Exception => e
+				warn e
+				warn e.backtrace.join("\r\t")
+				raise
 			rescue Message::InvalidMessage
 				@log.error "MessageParse: " + l.inspect
 			end
