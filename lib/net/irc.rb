@@ -418,7 +418,7 @@ class Net::IRC::Client
 		post WHOIS, @opts.nick
 		while l = @socket.gets
 			begin
-				@log.debug l.chomp
+				@log.debug "RECEIVE: #{l.chomp}"
 				m = Message.parse(l)
 				next if on_message(m) === true
 				name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
@@ -444,7 +444,11 @@ class Net::IRC::Client
 
 	private
 	def post(command, *params)
-		@socket << Message.new(nil, command, params)
+		m = Message.new(nil, command, params.map {|s|
+			s.gsub(/\r|\n/, " ")
+		})
+		@log.debug "SEND: #{m.to_s.chomp}"
+		@socket << m
 	end
 end # Client
 
@@ -562,7 +566,9 @@ class Net::IRC::Server
 
 		private
 		def post(prefix, command, *params)
-			m = Message.new(prefix, command, params)
+			m = Message.new(prefix, command, params.map {|s|
+				s.gsub(/\r|\n/, " ")
+			})
 			@log.debug "SEND: #{m.to_s.chomp}"
 			@socket << m
 		end
