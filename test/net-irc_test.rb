@@ -25,4 +25,9 @@ class Net::IrcTest < Test::Unit::TestCase
 			assert_equal l, Message.new(m.prefix, m.command, m.params).to_s
 		end
 	end
+
+	def test_server
+		#server = Net::IRC::Server.new("localhost", 16669, Net::IRC::Server::Session)
+		#server.start
+	end
 end

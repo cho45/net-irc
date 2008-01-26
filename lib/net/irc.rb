@@ -1,6 +1,9 @@
+#!ruby
 
 require "ostruct"
 require "socket"
+require "thread"
+require "logger"
 
 module Net; end
 
@@ -375,43 +378,101 @@ class Net::IRC::Message
 end # Message
 
 class Net::IRC::Client
-	def initialize(server, port, opts)
+	include Net::IRC
+	include Constants
+
+	def initialize(host, port, opts={})
+		@host = host
+		@port = port
+		@opts = OpenStruct.new(opts)
+		@log  = Logger.new(@opts.out || $stdout)
+	end
+
+	def start
+		@socket = TCPSocket.open(@host, @port)
+		request PASS,  @opts.pass if @opts.pass
+		request NICK,  @opts.nick
+		request USER,  @opts.user, "0", "*", @opts.real
+		request WHOIS, @opts.nick
+		while l = @socket.gets
+			begin
+				m = Message.parse(l)
+				@log.debug m.inspect
+				name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
+				send(name, m) if respond_to?(name)
+			rescue Message::InvalidMessage
+				@log.error "MessageParse: " + l.inspect
+			end
+		end
+	ensure
+		finish
+	end
+
+	def finish
+		@socket.close
+	end
+
+	def on_rpl_whoisuser(m)
+		if params[1] == @nick
+			@prefix = Chokan::Prefix.new("#{params[1]}!#{params[2]}@#{params[3]}")
+		end
+		[prefix, params[1], params[2], params[3]]
 	end
 
 	private
-	def request(*args)
-		@socket << Message.new(*args)
+	def request(command, *params)
+		@socket << Message.new(@prefix, command, params)
 	end
 end # Client
 
 class Net::IRC::Server
-	def initialize(host, port, session_class, opts)
+	def initialize(host, port, session_class, opts={})
 		@host          = host
 		@port          = port
 		@session_class = session_class
 		@opts          = OpenStruct.new(opts)
+		@sessions      = []
 	end
 
-	def run
-		serv = TCPServer.new(@host, @port)
-		@log = Logger.new(@opts.out)
+	def start
+		@serv = TCPServer.new(@host, @port)
+		@log = Logger.new(@opts.out || $stdout)
 		@log.info "Host: #{@host} Port:#{@port}"
-		loop do
-			Thread.start(serv.accept) do |s|
-				begin
-					@log.info "Client connected, new session starting..."
-					@session_class.new(self, s, @log)
-				rescue Exception => e
-					puts e
-					puts e.backtrace
+		@accept = Thread.start do
+			loop do
+				Thread.start(@serv.accept) do |s|
+					@sockets << s
+					begin
+						@log.info "Client connected, new session starting..."
+						s = @session_class.new(self, s, @log)
+						@sessions << s
+						s.start
+					rescue Exception => e
+						puts e
+						puts e.backtrace
+					ensure
+						@sessions.delete(s)
+					end
 				end
+			end
+		end
+		@accept.join
+	end
+
+	def finish
+		Thread.exclusive do
+			@accept.kill
+			@serv.close
+			@sessions.each do |s|
+				s.close
 			end
 		end
 	end
 
 
 	class Session
-		include Net::IRC::Constants
+		include Net::IRC
+		include Constants
 
 		def initialize(server, socket, logger)
 			@server, @socket, @logger = server, socket, logger
@@ -431,14 +492,18 @@ class Net::IRC::Server
 						on_quit if respond_to?(:on_quit)
 						break
 					else
-						name = "on_#{m.command.downcase}"
+						name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
 						send(name, m) if respond_to?(name)
 					end
-				rescue InvalidMessage
+				rescue Message::InvalidMessage
 					@log.error "MessageParse: " + l.inspect
 				end
 			end
 		ensure
+			finish
+		end
+
+		def finish
 			@socket.close
 		end
 
@@ -464,12 +529,18 @@ class Net::IRC::Server
 		end
 
 		private
-		def response(*args)
-			@socket << Message.new(*args)
+		def response(prefix, comamnd, *params)
+			@socket << Message.new(prefix, command, params)
 		end
 	end
 end # Server
 
+
+Net::IRC::Client.new("charlotte", "6669", {
+	:nick => "chokan",
+	:user => "chokan",
+	:real => "chokan",
+}).start
 
 __END__
 class SimpleClient < Net::IRC::Client
@@ -480,15 +551,15 @@ end
 
 class LingrIrcGateway < Net::IRC::Server::Session
 	def on_user
-		response(RPL_WELCOME,  NAME, @nick, "Welcome to the Internet Relay Network #{@mask}")
-		response(RPL_YOURHOST, NAME, @nick, "Your host is #{NAME}, running version #{Version}")
-		response(RPL_CREATED,  NAME, @nick, "This server was created #{Time.now}")
-		response(RPL_MYINFO,   NAME, @nick, "#{NAME} `Tynoq` v#{Version}")
+		response(NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}")
+		response(NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}")
+		response(NAME, RPL_CREATED,  "This server was created #{Time.now}")
+		response(NAME, RPL_MYINFO,   "#{NAME} `Tynoq` v#{Version}")
 	end
 
 	def on_privmsg
 	end
 end
 
-Net::IRC::Server.new("localhost", 16669, LingrIrcGateway).run
+Net::IRC::Server.new("localhost", 16669, LingrIrcGateway).start
 
