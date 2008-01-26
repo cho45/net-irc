@@ -28,7 +28,6 @@ class Net::IrcTest < Test::Unit::TestCase
 	end
 
 	def test_server
-
 		server, client = nil, nil
 		Thread.start do
 			server = Net::IRC::Server.new("localhost", 16669, TestServerSession)
@@ -46,7 +45,7 @@ class Net::IrcTest < Test::Unit::TestCase
 
 		assert_equal "chokan!chokan@localhost", TestServerSession.testq.pop
 		client.instance_eval do
-			request PRIVMSG, "#channel", "message a b c"
+			post PRIVMSG, "#channel", "message a b c"
 		end
 
 		message = TestServerSession.testq.pop

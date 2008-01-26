@@ -412,10 +412,10 @@ class Net::IRC::Client
 
 	def start
 		@socket = TCPSocket.open(@host, @port)
-		request PASS,  @opts.pass if @opts.pass
-		request NICK,  @opts.nick
-		request USER,  @opts.user, "0", "*", @opts.real
-		request WHOIS, @opts.nick
+		post PASS,  @opts.pass if @opts.pass
+		post NICK,  @opts.nick
+		post USER,  @opts.user, "0", "*", @opts.real
+		post WHOIS, @opts.nick
 		while l = @socket.gets
 			begin
 				m = Message.parse(l)
@@ -443,7 +443,7 @@ class Net::IRC::Client
 	end
 
 	private
-	def request(command, *params)
+	def post(command, *params)
 		@socket << Message.new(nil, command, params)
 	end
 end # Client
@@ -562,15 +562,15 @@ class Net::IRC::Server
 		end
 
 		private
-		def response(prefix, command, *params)
+		def post(prefix, command, *params)
 			@socket << Message.new(prefix, command, params)
 		end
 
 		def inital_message
-			response NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}"
-			response NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}"
-			response NAME, RPL_CREATED,  "This server was created #{Time.now}"
-			response NAME, RPL_MYINFO,   "#{NAME} #{Version} #{AVAIABLE_USER_MODES} #{AVAIABLE_CHANNEL_MODES}"
+			post NAME, RPL_WELCOME,  "Welcome to the Internet Relay Network #{@mask}"
+			post NAME, RPL_YOURHOST, "Your host is #{NAME}, running version #{Version}"
+			post NAME, RPL_CREATED,  "This server was created #{Time.now}"
+			post NAME, RPL_MYINFO,   "#{NAME} #{Version} #{AVAIABLE_USER_MODES} #{AVAIABLE_CHANNEL_MODES}"
 		end
 	end
 end # Server
