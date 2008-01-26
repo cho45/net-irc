@@ -309,7 +309,7 @@ module Net::IRC
 		
 		private
 		def _match
-			self[/^([^\s!]+)!([^\s@]+)@(\S+)$/]
+			self.match(/^([^\s!]+)!([^\s@]+)@(\S+)$/)
 		end
 	end
 end
@@ -348,7 +348,7 @@ class Net::IRC::Message
 	end
 
 	def initialize(prefix, command, params)
-		@prefix  = prefix
+		@prefix  = Prefix.new(prefix.to_s)
 		@command = command
 		@params  = params
 	end
@@ -363,7 +363,7 @@ class Net::IRC::Message
 
 	def to_s
 		str = ""
-		if @prefix
+		unless @prefix.empty?
 			str << ":#{@prefix} "
 		end
 
@@ -408,6 +408,12 @@ class Net::IRC::Client
 		@port = port
 		@opts = OpenStruct.new(opts)
 		@log  = Logger.new(@opts.out || $stdout)
+		@channels = {
+#			"#channel" => {
+#				:modes => [],
+#				:users => [],
+#			}
+		}
 	end
 
 	def start
@@ -435,11 +441,110 @@ class Net::IRC::Client
 		@socket.close
 	end
 
+	def on_message(m)
+	end
+
+	# required
 	def on_rpl_whoisuser(m)
 		@prefix = Prefix.new("#{m[1]}!#{m[2]}@#{m[3]}") if m[1] == @opts.nick
 	end
 
-	def on_message(m)
+	# for managing channel
+	def on_rpl_namreply(m)
+		channel = m[2]
+		init_channel(channel)
+
+		m[3].split(/\s+/).each do |u|
+			_, mode, nick = *u.match(/^([@+]?)(.+)/)
+
+			@channels[channel][:users] << nick
+			@channels[channel][:users].uniq!
+
+			case mode
+			when "@"
+				@channels[channel][:modes] << ["o", nick]
+			when "+"
+				@channels[channel][:modes] << ["v", nick]
+			end
+		end
+	end
+
+	# for managing channel
+	def on_part(m)
+		nick    = m.prefix.nick
+		channel = m[0]
+		init_channel(channel)
+
+		info = @channels[channel]
+		if info
+			info[:users].delete(nick)
+			info[:modes].delete_if {|u|
+				u[1] == nick
+			}
+		end
+	end
+
+	# for managing channel
+	def on_quit(m)
+		on_part(m)
+	end
+
+	# for managing channel
+	def on_join(m)
+		nick    = m.prefix.nick
+		channel = m[0]
+		init_channel(channel)
+
+		@channels[channel][:users] << nick
+		@channels[channel][:users].uniq!
+	end
+
+	# for managing channel
+	def on_mode(m)
+		channel = m[0]
+		init_channel(channel)
+
+		positive_mode = []
+		negative_mode = []
+
+		mode = positive_mode
+		arg_pos = 0
+		m[1].each_byte do |c|
+			case c
+			when ?+
+				mode = positive_mode
+			when ?-
+				mode = negative_mode
+			when ?o, ?v, ?k, ?l, ?b, ?e, ?I
+				mode << [c.chr, m[arg_pos + 2]]
+				arg_pos += 1
+			else
+				mode << [c.chr, nil]
+			end
+		end
+		mode = nil
+
+		negative_mode.each do |m|
+			@channels[channel][:modes].delete(m)
+		end
+
+		positive_mode.each do |m|
+			@channels[channel][:modes] << m
+		end
+
+		@channels[channel][:modes].uniq!
+	end
+
+	# for managing channel
+	def init_channel(channel)
+		@channels[channel] ||= {
+			:modes => [],
+			:users => [],
+		}
+	end
+
+	def method_missing(name, *args)
+		# pass to avoid error on calling super
 	end
 
 	private
