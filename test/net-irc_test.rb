@@ -1,6 +1,8 @@
 require File.dirname(__FILE__) + '/test_helper.rb'
 
 require "test/unit"
+require "stringio"
+
 class Net::IrcTest < Test::Unit::TestCase
 	include Net::IRC
 	include Constants
@@ -30,17 +32,22 @@ class Net::IrcTest < Test::Unit::TestCase
 	end
 
 	def test_server
+		port = rand(0xffff) + 1000
+
 		server, client = nil, nil
 		Thread.start do
-			server = Net::IRC::Server.new("localhost", 16669, TestServerSession)
+			server = Net::IRC::Server.new("localhost", port, TestServerSession, {
+				:out => StringIO.new,
+			})
 			server.start
 		end
 
 		Thread.start do
-			client = Net::IRC::Client.new("localhost", "16669", {
+			client = Net::IRC::Client.new("localhost", port, {
 				:nick => "chokan",
 				:user => "chokan",
 				:real => "chokan",
+				:out  => StringIO.new,
 			})
 			client.start
 		end
