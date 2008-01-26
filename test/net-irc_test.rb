@@ -57,7 +57,6 @@ class Net::IrcTest < Test::Unit::TestCase
 		assert_equal "PASS foopass\r\n", TestServerSession.testq.pop.to_s
 		assert_equal "NICK foonick\r\n", TestServerSession.testq.pop.to_s
 		assert_equal "USER foouser 0 * :foo real name\r\n", TestServerSession.testq.pop.to_s
-		assert_equal "WHOIS foonick\r\n", TestServerSession.testq.pop.to_s
 
 		assert_equal "001 foonick :Welcome to the Internet Relay Network foonick!foouser@localhost\r\n", TestClient.testq.pop.to_s
 		assert_equal "002 foonick :Your host is Net::IRC::Server::Session, running version 0.0.0\r\n", TestClient.testq.pop.to_s
@@ -70,27 +69,27 @@ class Net::IrcTest < Test::Unit::TestCase
 		assert_instance_of Net::IRC::Message, message
 		assert_equal "PRIVMSG #channel :message a b c\r\n", message.to_s
 
-		client.instance_variable_set(:@prefix, Prefix.new("foonick!foouser@localhost"))
+		#client.instance_variable_set(:@prefix, Prefix.new("foonick!foouser@localhost"))
 
 		# test channel management
 		TestServerSession.instance.instance_eval do
 			Thread.exclusive do
-				post client.prefix, JOIN, "#test"
-				post nil, NOTICE, "#test", "sep1"
+				post client.prefix,          JOIN,   "#test"
+				post nil,                    NOTICE, "#test", "sep1"
 
-				post "test1!test@localhost", JOIN, "#test"
-				post "test2!test@localhost", JOIN, "#test"
-				post nil, NOTICE, "#test", "sep2"
+				post "test1!test@localhost", JOIN,   "#test"
+				post "test2!test@localhost", JOIN,   "#test"
+				post nil,                    NOTICE, "#test", "sep2"
 
-				post nil, RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
-				post nil, NOTICE, "#test", "sep3"
+				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
+				post nil,                    NOTICE, "#test", "sep3"
 
-				post nil, RPL_NAMREPLY, client.prefix.nick, "@", "#test1", "foo1 foo2 foo3 @foo4 +foo5"
-				post "foo4!foo@localhost", QUIT, "message"
-				post "foo5!foo@localhost", PART, "#test1", "message"
-				post client.prefix, KICK, "#test", "foo1", "message"
-				post client.prefix, MODE, "#test", "+o", "foo2"
-				post nil, NOTICE, "#test", "sep4"
+				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test1", "foo1 foo2 foo3 @foo4 +foo5"
+				post "foo4!foo@localhost",   QUIT,   "message"
+				post "foo5!foo@localhost",   PART,   "#test1", "message"
+				post client.prefix,          KICK,   "#test", "foo1", "message"
+				post client.prefix,          MODE,   "#test", "+o", "foo2"
+				post nil,                    NOTICE, "#test", "sep4"
 			end
 		end
 

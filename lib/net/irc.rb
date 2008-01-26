@@ -421,7 +421,6 @@ class Net::IRC::Client
 		post PASS,  @opts.pass if @opts.pass
 		post NICK,  @opts.nick
 		post USER,  @opts.user, "0", "*", @opts.real
-		post WHOIS, @opts.nick
 		while l = @socket.gets
 			begin
 				@log.debug "RECEIVE: #{l.chomp}"
@@ -449,8 +448,8 @@ class Net::IRC::Client
 	end
 
 	# required
-	def on_rpl_whoisuser(m)
-		@prefix = Prefix.new("#{m[1]}!#{m[2]}@#{m[3]}") if m[1] == @opts.nick
+	def on_rpl_welcome(m)
+		@prefix = Prefix.new(m[1][/\S+!\S+@\S+/])
 	end
 
 	# ping
