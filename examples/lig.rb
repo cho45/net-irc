@@ -10,8 +10,9 @@ begin
 	require "api_client"
 rescue LoadError
 	require "net/http"
+	require "uri"
 	File.open("api_client.rb", "w") do |f|
-		f.puts Net::HTTP.get("http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb")
+		f.puts Net::HTTP.get(URI("http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb"))
 	end
 	require "api_client"
 end
@@ -47,7 +48,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_privmsg(m)
 		target, message = *m.params
-		@lingr.say(@channels[target][:ticket], message)
+		@lingr.say(@channels[target.downcase][:ticket], message)
 	end
 
 	def on_whois(m)
@@ -57,7 +58,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_who(m)
 		channel = m.params[0]
-		res = @lingr.get_room_info(@channels[channel][:chan_id], nil, @channels[channel][:password])
+		info    = @channels[channel.downcase]
+		res = @lingr.get_room_info(info[:chan_id], nil, info[:password])
 		if res[:succeeded]
 			res = res[:response]
 			res["occupants"].each do |o|
@@ -74,7 +76,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		channels = m.params[0].split(/\s*,\s*/)
 		password = m.params[1]
 		channels.each do |channel|
-			next if @channels.key? channel
+			next if @channels.key? channel.downcase
 			@log.debug "Enter room -> #{channel}"
 			res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
 			if res[:succeeded]
@@ -83,18 +85,19 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				post "#{@nick}!#{o_id}@lingr.com", JOIN, channel
 				create_observer(channel, res[:response])
 			else
-				log "Error: #{(response && response['error']) ? res[:response]["error"]["message"] : "socket error"}"
+				log "Error: #{(res && rese['error']) ? res[:response]["error"]["message"] : "socket error"}"
 			end
 		end
 	end
 
 	def on_part(m)
 		channel = m.params[0]
+		info = @channels[channel].downcase
 
-		if @channels[channel]
-			@channels[channel][:observer].kill
-			@lingr.exit_room(@channels[channel][:ticket])
-			@channels.delete(channel)
+		if info
+			info[:observer].kill
+			@lingr.exit_room(info[:ticket])
+			@channels.delete(channel.downcase)
 			post @nick, PART, channel, "Parted"
 		end
 	end
@@ -105,7 +108,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		Thread.start(channel, response) do |chan, res|
 			begin
 				post @@name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
-				@channels[chan] = {
+				@channels[chan.downcase] = {
 					:ticket   => res["ticket"],
 					:counter  => res["counter"],
 					:o_id     => res["occupant_id"],
@@ -116,7 +119,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				}
 				first = true
 				while true
-					info = @channels[chan]
+					info = @channels[chan.downcase]
 					res = @lingr.observe_room info[:ticket], info[:counter]
 					@log.debug "observe_room returned"
 					if res[:succeeded]
@@ -161,7 +164,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						end
 					else
 						@log.debug "observe failed : #{res[:response].inspect}"
-						log "Error: #{(response && response['error']) ? res[:response]["error"]["message"] : "socket error"}"
+						log "Error: #{(res && res['error']) ? res[:response]["error"]["message"] : "socket error"}"
 					end
 					first = false
 				end
