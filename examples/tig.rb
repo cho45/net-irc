@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby
+#!/usr/bin/env ruby -Ku
 =begin
 
 # tig.rb
@@ -41,6 +41,8 @@ Ruby's by cho45
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
+
+$KCODE = "u" # json use this
 
 require "rubygems"
 require "net/http"
