@@ -181,7 +181,7 @@ class TestClient < Net::IRC::Client
 	end
 end
 
-describe Net::IRC::Server, "server and client" do
+describe Net::IRC, "server and client" do
 	before :all do
 		@port = rand(0xffff) + 1000
 		@server, @client = nil, nil
@@ -217,7 +217,7 @@ describe Net::IRC::Server, "server and client" do
 
 	it "server should send 001,002,003 numeric replies." do
 		client_q.pop.to_s.should match(/^001 foonick :Welcome to the Internet Relay Network \S+!\S+@\S+/)
-		client_q.pop.to_s.should match(/^002 foonick :Your host is Net::IRC::Server::Session, running version /)
+		client_q.pop.to_s.should match(/^002 foonick :Your host is .+?, running version /)
 		client_q.pop.to_s.should match(/^003 foonick :This server was created /)
 	end
 
@@ -231,6 +231,54 @@ describe Net::IRC::Server, "server and client" do
 		message.to_s.should == "PRIVMSG #channel :message a b c\r\n"
 	end
 
+	it "client should manage channel mode/users correctly" do
+		client = @client
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
+				post client.prefix,          JOIN,   "#test"
+				post nil,                    NOTICE, "#test", "sep1"
+
+				post "test1!test@localhost", JOIN,   "#test"
+				post "test2!test@localhost", JOIN,   "#test"
+				post nil,                    NOTICE, "#test", "sep2"
+
+				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
+				post nil,                    NOTICE, "#test", "sep3"
+
+				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test1", "foo1 foo2 foo3 @foo4 +foo5"
+				post "foo4!foo@localhost",   QUIT,   "message"
+				post "foo5!foo@localhost",   PART,   "#test1", "message"
+				post client.prefix,          KICK,   "#test", "foo1", "message"
+				post client.prefix,          MODE,   "#test", "+o", "foo2"
+				post nil,                    NOTICE, "#test", "sep4"
+			end
+		end
+
+		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
+		c = @client.instance_variable_get(:@channels)
+		c.should                  be_a_kind_of(Hash)
+		c["#test"].should         be_a_kind_of(Hash)
+		c["#test"][:modes].should be_a_kind_of(Array)
+		c["#test"][:users].should be_a_kind_of(Array)
+		c["#test"][:users].should == ["foonick"]
+
+		true until client_q.pop.to_s == "NOTICE #test sep2\r\n"
+		c["#test"][:users].should == ["foonick", "test1", "test2"]
+
+		true until client_q.pop.to_s == "NOTICE #test sep3\r\n"
+		c["#test"][:users].should == ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"]
+		c["#test"][:modes].should include(["s", nil])
+		c["#test"][:modes].should include(["o", "foo4"])
+		c["#test"][:modes].should include(["v", "foo5"])
+
+		true until client_q.pop.to_s == "NOTICE #test sep4\r\n"
+		c["#test"][:users].should      == ["foonick", "test1", "test2", "foo2", "foo3", "foo5"]
+		c["#test1"][:users].should     == ["foo1", "foo2", "foo3"]
+		c["#test"][:modes].should_not  include(["o", "foo4"])
+		c["#test"][:modes].should      include(["v", "foo5"])
+		c["#test1"][:modes].should_not include(["v", "foo5"])
+		c["#test"][:modes].should      include(["o", "foo2"])
+	end
 
 	after :all do
 		@server.finish
