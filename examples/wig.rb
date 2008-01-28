@@ -12,7 +12,7 @@ Options specified by after irc realname.
 
 Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
-	twitter {
+	wasser {
 		host: localhost
 		port: 16670
 		name: username@example.com athack

@@ -616,7 +616,7 @@ class Net::IRC::Client
 	private
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
-			s.gsub(/\r|\n/, " ")
+			s.gsub(/[\r\n]/, " ")
 		})
 		@log.debug "SEND: #{m.to_s.chomp}"
 		@socket << m
@@ -760,7 +760,7 @@ class Net::IRC::Server
 		private
 		def post(prefix, command, *params)
 			m = Message.new(prefix, command, params.map {|s|
-				s.gsub(/\r|\n/, " ")
+				s.gsub(/[\r\n]/, " ")
 			})
 			@log.debug "SEND: #{m.to_s.chomp}"
 			@socket << m
