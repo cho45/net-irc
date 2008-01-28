@@ -3,7 +3,7 @@
 
 # wig.rb
 
-Wasser IRC Gateway
+Wassr IRC Gateway
 
 
 ## Client opts
@@ -12,11 +12,11 @@ Options specified by after irc realname.
 
 Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
-	wasser {
+	wassr {
 		host: localhost
 		port: 16670
 		name: username@example.com athack
-		password: password on wasser
+		password: password on wassr
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -42,9 +42,9 @@ $LOAD_PATH << File.dirname(__FILE__)
 
 require "tig.rb"
 
-class WasserIrcGateway < TwitterIrcGateway
+class WassrIrcGateway < TwitterIrcGateway
 	def server_name
-		"wassergw"
+		"wassrgw"
 	end
 
 	def server_version
@@ -52,16 +52,16 @@ class WasserIrcGateway < TwitterIrcGateway
 	end
 
 	def main_channel
-		"#wasser"
+		"#wassr"
 	end
 
 	def api_base
-		@api_base ||= URI("http://api.wasser.jp/")
+		@api_base ||= URI("http://api.wassr.jp/")
 	end
 end
 
 if __FILE__ == $0
-	Net::IRC::Server.new("localhost", 16670, WasserIrcGateway).start
+	Net::IRC::Server.new("localhost", 16670, WassrIrcGateway).start
 end
 
 
