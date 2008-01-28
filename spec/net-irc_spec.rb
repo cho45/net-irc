@@ -146,3 +146,94 @@ describe Net::IRC, "utilities" do
 		message.should == "ACTION \x00 \x0a \x0d \x10 "
 	end
 end
+
+class TestServerSession < Net::IRC::Server::Session
+	@@testq = SizedQueue.new(1)
+	@@instance = nil
+
+	def self.testq
+		@@testq
+	end
+
+	def self.instance
+		@@instance
+	end
+
+	def initialize(*args)
+		super
+		@@instance = self
+	end
+
+	def on_message(m)
+		@@testq << m
+	end
+end
+
+class TestClient < Net::IRC::Client
+	@@testq = SizedQueue.new(1)
+
+	def self.testq
+		@@testq
+	end
+
+	def on_message(m)
+		@@testq << m
+	end
+end
+
+describe Net::IRC::Server, "server and client" do
+	before :all do
+		@port = rand(0xffff) + 1000
+		@server, @client = nil, nil
+
+		Thread.abort_on_exception = true
+		Thread.start do
+			@server = Net::IRC::Server.new("localhost", @port, TestServerSession, {
+				:out => StringIO.new,
+			})
+			@server.start
+		end
+
+		Thread.start do
+			@client = TestClient.new("localhost", @port, {
+				:nick => "foonick",
+				:user => "foouser",
+				:real => "foo real name",
+				:pass => "foopass",
+				:out  => StringIO.new,
+			})
+			@client.start
+		end
+	end
+
+	server_q = TestServerSession.testq
+	client_q = TestClient.testq
+
+	it "client should send pass/nick/user sequence." do
+		server_q.pop.to_s.should == "PASS foopass\r\n"
+		server_q.pop.to_s.should == "NICK foonick\r\n"
+		server_q.pop.to_s.should == "USER foouser 0 * :foo real name\r\n"
+	end
+
+	it "server should send 001,002,003 numeric replies." do
+		client_q.pop.to_s.should match(/^001 foonick :Welcome to the Internet Relay Network \S+!\S+@\S+/)
+		client_q.pop.to_s.should match(/^002 foonick :Your host is Net::IRC::Server::Session, running version /)
+		client_q.pop.to_s.should match(/^003 foonick :This server was created /)
+	end
+
+	it "client posts PRIVMSG and server receives it." do
+		@client.instance_eval do
+			post PRIVMSG, "#channel", "message a b c"
+		end
+
+		message = server_q.pop
+		message.should be_a_kind_of(Net::IRC::Message)
+		message.to_s.should == "PRIVMSG #channel :message a b c\r\n"
+	end
+
+
+	after :all do
+		@server.finish
+		@client.finish
+	end
+end

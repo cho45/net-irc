@@ -453,12 +453,16 @@ class Net::IRC::Client
 				@log.error "MessageParse: " + l.inspect
 			end
 		end
+	rescue IOError
 	ensure
 		finish
 	end
 
 	def finish
-		@socket.close
+		begin
+			@socket.close
+		rescue
+		end
 		on_disconnected
 	end
 
@@ -636,7 +640,6 @@ class Net::IRC::Server
 			loop do
 				Thread.start(@serv.accept) do |s|
 					begin
-						@sessions << s
 						@log.info "Client connected, new session starting..."
 						s = @session_class.new(self, s, @log, @opts)
 						@sessions << s
@@ -656,9 +659,12 @@ class Net::IRC::Server
 	def finish
 		Thread.exclusive do
 			@accept.kill
-			@serv.close
+			begin
+				@serv.close
+			rescue
+			end
 			@sessions.each do |s|
-				s.close
+				s.finish
 			end
 		end
 	end
@@ -710,12 +716,16 @@ class Net::IRC::Server
 					@log.error "MessageParse: " + l.inspect
 				end
 			end
+		rescue IOError
 		ensure
 			finish
 		end
 
 		def finish
-			@socket.close
+			begin
+				@socket.close
+			rescue
+			end
 			on_disconnected
 		end
 
