@@ -312,6 +312,21 @@ module Net::IRC
 			ret
 		end
 	end
+
+	def ctcp_encoding(str)
+		str = str.gsub(/\\/, "\\\\\\\\").gsub(/\x01/, '\a')
+		str = str.gsub(/\x10/, "\x10\x10").gsub(/\x00/, "\x10\x30").gsub(/\x0d/, "\x10r").gsub(/\x0a/, "\x10n")
+		"\x01#{str}\x01"
+	end
+	module_function :ctcp_encoding
+
+	def ctcp_decoding(str)
+		str = str.gsub(/\x01/, "")
+		str = str.gsub(/\x10n/, "\x0a").gsub(/\x01r/, "\x0d").gsub(/\x10\x30/, "\x00").gsub(/\x10\x10/, "\x10")
+		str = str.gsub(/\\a/, "\x01").gsub(/\\\\/, "\\")
+		str
+	end
+	module_function :ctcp_decoding
 end
 
 class Net::IRC::Message
@@ -384,6 +399,7 @@ class Net::IRC::Message
 
 		str
 	end
+	alias to_str to_s
 
 	def inspect
 		'#<%s:0x%x prefix:%s command:%s params:%s>' % [
@@ -418,6 +434,7 @@ class Net::IRC::Client
 
 	def start
 		@socket = TCPSocket.open(@host, @port)
+		on_connected if respond_to?(:on_connected)
 		post PASS,  @opts.pass if @opts.pass
 		post NICK,  @opts.nick
 		post USER,  @opts.user, "0", "*", @opts.real
@@ -442,6 +459,7 @@ class Net::IRC::Client
 
 	def finish
 		@socket.close
+		on_disconnected if respond_to?(:on_disconnected)
 	end
 
 	def on_message(m)
@@ -576,6 +594,7 @@ class Net::IRC::Client
 		end
 
 		@channels[channel][:modes].uniq!
+		[negative_mode, positive_mode]
 	end
 
 	# for managing channel
@@ -740,31 +759,3 @@ class Net::IRC::Server
 		end
 	end
 end # Server
-
-
-__END__
-
-Net::IRC::Client.new("charlotte", "6669", {
-	:nick => "chokan",
-	:user => "chokan",
-	:real => "chokan",
-}).start
-
-__END__
-class SimpleClient < Net::IRC::Client
-	def on_privmsg(m)
-		request(PRIVMSG, channel, "aaa")
-	end
-end
-
-class LingrIrcGateway < Net::IRC::Server::Session
-	def on_user(m)
-		super
-	end
-
-	def on_privmsg(m)
-	end
-end
-
-Net::IRC::Server.new("localhost", 16669, LingrIrcGateway).start
-
