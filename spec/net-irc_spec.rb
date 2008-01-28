@@ -11,7 +11,7 @@ require "rubygems"
 gem "rspec"
 require "spec"
 
-describe Message, "construct" do
+describe Net::IRC::Message, "construct" do
 
 	it "should generate message correctly" do
 		m = Message.new("foo", "PRIVMSG", ["#channel", "message"])
@@ -44,7 +44,7 @@ describe Message, "construct" do
 
 end
 
-describe Message, "parse" do
+describe Net::IRC::Message, "parse" do
 	it "should parse correctly following RFC." do
 		m = Message.parse("PRIVMSG #channel message\r\n")
 		m.prefix.should  == ""
@@ -256,20 +256,20 @@ describe Net::IRC, "server and client" do
 
 		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
 		c = @client.instance_variable_get(:@channels)
-		c.should                  be_a_kind_of(Hash)
-		c["#test"].should         be_a_kind_of(Hash)
-		c["#test"][:modes].should be_a_kind_of(Array)
-		c["#test"][:users].should be_a_kind_of(Array)
-		c["#test"][:users].should == ["foonick"]
+		c.should                       be_a_kind_of(Hash)
+		c["#test"].should              be_a_kind_of(Hash)
+		c["#test"][:modes].should      be_a_kind_of(Array)
+		c["#test"][:users].should      be_a_kind_of(Array)
+		c["#test"][:users].should      == ["foonick"]
 
 		true until client_q.pop.to_s == "NOTICE #test sep2\r\n"
-		c["#test"][:users].should == ["foonick", "test1", "test2"]
+		c["#test"][:users].should      == ["foonick", "test1", "test2"]
 
 		true until client_q.pop.to_s == "NOTICE #test sep3\r\n"
-		c["#test"][:users].should == ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"]
-		c["#test"][:modes].should include(["s", nil])
-		c["#test"][:modes].should include(["o", "foo4"])
-		c["#test"][:modes].should include(["v", "foo5"])
+		c["#test"][:users].should      == ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"]
+		c["#test"][:modes].should      include(["s", nil])
+		c["#test"][:modes].should      include(["o", "foo4"])
+		c["#test"][:modes].should      include(["v", "foo5"])
 
 		true until client_q.pop.to_s == "NOTICE #test sep4\r\n"
 		c["#test"][:users].should      == ["foonick", "test1", "test2", "foo2", "foo3", "foo5"]
@@ -285,3 +285,4 @@ describe Net::IRC, "server and client" do
 		@client.finish
 	end
 end
+

@@ -2,7 +2,6 @@ require 'rubygems'
 require "shipit"
 require 'rake'
 require 'rake/clean'
-require 'rake/testtask'
 require 'rake/packagetask'
 require 'rake/gempackagetask'
 require 'rake/rdoctask'
@@ -37,13 +36,12 @@ RDOC_OPTS = [
 	"--inline-source",
 ]
 
-task :default => [:test]
+task :default => [:spec]
 task :package => [:clean]
 
-Rake::TestTask.new("test") do |t|
-	t.libs   << "test"
-	t.pattern = "test/**/*_test.rb"
-	t.verbose = true
+Spec::Rake::SpecTask.new do |t|
+	t.spec_opts = ['--options', "spec/spec.opts"]
+	t.spec_files = FileList['spec/*_spec.rb']
 end
 
 spec = Gem::Specification.new do |s|
@@ -63,7 +61,6 @@ spec = Gem::Specification.new do |s|
 	s.bindir            = "bin"
 	s.require_path      = "lib"
 	s.autorequire       = ""
-	s.test_files        = Dir["test/test_*.rb"]
 
 	#s.add_dependency('activesupport', '>=1.3.1')
 	#s.required_ruby_version = '>= 1.8.2'
@@ -132,10 +129,4 @@ Rake::ShipitTask.new do |s|
 	s.Tag
 	s.Twitter
 	s.Task :rubyforge
-end
-
-desc "Run the specs under spec/models"
-Spec::Rake::SpecTask.new do |t|
-	t.spec_opts = ['--options', "spec/spec.opts"]
-	t.spec_files = FileList['spec/*_spec.rb']
 end
