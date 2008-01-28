@@ -22,8 +22,13 @@ require "pit"
 
 
 class LingrIrcGateway < Net::IRC::Server::Session
-	@@name     = "lingrgw"
-	@@version  = "0.0.0"
+	def server_name
+		"lingrgw"
+	end
+
+	def server_version
+		"0.0.0"
+	end
 
 	def initialize(*args)
 		super
@@ -107,7 +112,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def create_observer(channel, response)
 		Thread.start(channel, response) do |chan, res|
 			begin
-				post @@name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
+				post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
 				@channels[chan.downcase] = {
 					:ticket   => res["ticket"],
 					:counter  => res["counter"],

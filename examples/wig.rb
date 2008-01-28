@@ -43,10 +43,21 @@ $LOAD_PATH << File.dirname(__FILE__)
 require "tig.rb"
 
 class WasserIrcGateway < TwitterIrcGateway
-	@@name     = "wassergw"
-	@@version  = "0.0.0"
-	@@channel  = "#wasser"
-	@@api_base = URI("http://api.wassr.jp/")
+	def server_name
+		"wassergw"
+	end
+
+	def server_version
+		"0.0.0"
+	end
+
+	def main_channel
+		"#wasser"
+	end
+
+	def api_base
+		@api_base ||= URI("http://api.wasser.jp/")
+	end
 end
 
 if __FILE__ == $0

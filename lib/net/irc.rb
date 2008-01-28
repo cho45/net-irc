@@ -649,10 +649,21 @@ class Net::IRC::Server
 		include Net::IRC
 		include Constants
 
-		@@name                   = "Net::IRC::Server::Session"
-		@@version                = "0.0.0"
-		@@avaiable_user_modes    = "eixwy"
-		@@avaiable_channel_modes = "spknm"
+		def server_name
+			"Net::IRC::Server::Session"
+		end
+
+		def server_version
+			"0.0.0"
+		end
+
+		def avaiable_user_modes
+			"eixwy"
+		end
+
+		def avaiable_channel_modes
+			"spknm"
+		end
 
 		def initialize(server, socket, logger, opts={})
 			@server, @socket, @log, @opts = server, socket, logger, opts
@@ -723,9 +734,9 @@ class Net::IRC::Server
 
 		def inital_message
 			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@mask}"
-			post nil, RPL_YOURHOST, @nick, "Your host is #{@@name}, running version #{@@version}"
+			post nil, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
 			post nil, RPL_CREATED,  @nick, "This server was created #{Time.now}"
-			post nil, RPL_MYINFO,   @nick, "#{@@name} #{@@version} #{@@avaiable_user_modes} #{@@avaiable_channel_modes}"
+			post nil, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{avaiable_user_modes} #{avaiable_channel_modes}"
 		end
 	end
 end # Server

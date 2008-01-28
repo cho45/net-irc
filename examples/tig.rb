@@ -59,10 +59,21 @@ require "digest/md5"
 Net::HTTP.version_1_2
 
 class TwitterIrcGateway < Net::IRC::Server::Session
-	@@name     = "twittergw"
-	@@version  = "0.0.0"
-	@@channel  = "#twitter"
-	@@api_base = URI("http://twitter.com/")
+	def server_name
+		"twittergw"
+	end
+
+	def server_version
+		"0.0.0"
+	end
+
+	def main_channel
+		"#twitter"
+	end
+
+	def api_base
+		@api_base ||= URI("http://twitter.com/")
+	end
 
 	class ApiFailed < StandardError; end
 
@@ -76,7 +87,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_user(m)
 		super
-		post @mask, JOIN, @@channel
+		post @mask, JOIN, main_channel
 		@real, @opts = @real.split(/\s/)
 		@opts ||= []
 		@log.info "Client Options: #{@opts.inspect}"
@@ -141,8 +152,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick = m.params[0]
 		f = (@friends || []).find {|i| i["screen_name"] == nick }
 		if f
-			post nil, RPL_WHOISUSER,   nick, nick, nick, @@api_base.host, "*", NKF.nkf("-j", "#{f["name"]} / #{f["description"]}")
-			post nil, RPL_WHOISSERVER, nick, @@api_base.host, @@api_base.to_s
+			post nil, RPL_WHOISUSER,   nick, nick, nick, api_base.host, "*", NKF.nkf("-j", "#{f["name"]} / #{f["description"]}")
+			post nil, RPL_WHOISSERVER, nick, api_base.host, api_base.to_s
 			post nil, RPL_WHOISIDLE,   nick, "0", "seconds idle"
 			post nil, RPL_ENDOFWHOIS,  nick, "End of WHOIS list"
 		else
@@ -153,13 +164,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_who(m)
 		channel = m.params[0]
 		case
-		when channel == @@channel
+		when channel == main_channel
 			#     "<channel> <user> <host> <server> <nick> 
 			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ] 
 			#             :<hopcount> <real name>"
 			@friends.each do |f|
 				user = nick = f["screen_name"]
-				host = serv = @@api_base.host
+				host = serv = api_base.host
 				real = f["name"]
 				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
 			end
@@ -168,7 +179,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@groups[channel].each do |name|
 				f = @friends.find {|i| i["screen_name"] == name }
 				user = nick = f["screen_name"]
-				host = serv = @@api_base.host
+				host = serv = api_base.host
 				real = f["name"]
 				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
 			end
@@ -181,18 +192,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_join(m)
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
-			next if channel == @@channel
+			next if channel == main_channel
 
 			@channels << channel
 			@channels.uniq!
-			post "#{@nick}!#{@nick}@#{@@api_base.host}", JOIN, channel
+			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
 			save_config
 		end
 	end
 
 	def on_part(m)
 		channel = m.params[0]
-		return if channel == @@channel
+		return if channel == main_channel
 
 		@channels.delete(channel)
 		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
@@ -200,11 +211,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_invite(m)
 		nick, channel = *m.params
-		return if channel == @@channel
+		return if channel == main_channel
 
 		if (@friends || []).find {|i| i["screen_name"] == nick }
 			((@groups[channel] ||= []) << nick).uniq!
-			post "#{nick}!#{nick}@#{@@api_base.host}", JOIN, channel
+			post "#{nick}!#{nick}@#{api_base.host}", JOIN, channel
 			save_config
 		else
 			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
@@ -213,7 +224,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_kick(m)
 		channel, nick, mes = *m.params
-		return if channel == @@channel
+		return if channel == main_channel
 
 		if (@friends || []).find {|i| i["screen_name"] == nick }
 			(@groups[channel] ||= []).delete(nick)
@@ -240,9 +251,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@timeline << digest
 				@log.debug [nick, mesg, time].inspect
 				if nick == @nick # 自分のときは topic に
-					post nick, TOPIC, @@channel, mesg
+					post nick, TOPIC, main_channel, mesg
 				else
-					message(nick, @@channel, mesg)
+					message(nick, main_channel, mesg)
 				end
 				@groups.each do |channel,members|
 					if members.include?(nick)
@@ -274,18 +285,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		friends = api("statuses/friends.json")
 		if first && !@opts.include?("athack")
 			@friends = friends
-			post nil, RPL_NAMREPLY,   @@name, @nick, "=", @@channel, @friends.map{|i| i["screen_name"] }.join(" ")
-			post nil, RPL_ENDOFNAMES, @@name, @nick, @@channel, "End of NAMES list"
+			post nil, RPL_NAMREPLY,   server_name, @nick, "=", main_channel, @friends.map{|i| i["screen_name"] }.join(" ")
+			post nil, RPL_ENDOFNAMES, server_name, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
 			(now_friends - prv_friends).each do |join|
 				join = "@#{join}" if @opts.include?("athack")
-				post "#{join}!#{join}@#{@@api_base.host}", JOIN, @@channel
+				post "#{join}!#{join}@#{api_base.host}", JOIN, main_channel
 			end
 			(prv_friends - now_friends).each do |part|
 				part = "@#{part}" if @opts.include?("athack")
-				post "#{part}!#{part}@#{@@api_base.host}", PART, @@channel, ""
+				post "#{part}!#{part}@#{api_base.host}", PART, main_channel, ""
 			end
 			@friends = friends
 		end
@@ -314,7 +325,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		ret = {}
 		q["source"] = "tigrb"
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /./)}" } }.join("&")
-		uri = @@api_base + "/#{path}?#{q}"
+		uri = api_base + "/#{path}?#{q}"
 		@log.debug uri.inspect
 		Net::HTTP.start(uri.host, uri.port) do |http|
 			header = {
@@ -345,13 +356,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #				[$1 ? $2.hex : $2.to_i].pack("U")
 #			end
 		str = untinyurl(str)
-		sender =  "#{sender}!#{sender}@#{@@api_base.host}"
+		sender =  "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
 	end
 
 	def log(str)
 		str.gsub!(/\n/, " ")
-		post @@name, NOTICE, @@channel, str
+		post server_name, NOTICE, main_channel, str
 	end
 
 	def untinyurl(text)
