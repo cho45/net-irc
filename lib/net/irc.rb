@@ -322,7 +322,7 @@ module Net::IRC
 
 	def ctcp_decoding(str)
 		str = str.gsub(/\x01/, "")
-		str = str.gsub(/\x10n/, "\x0a").gsub(/\x01r/, "\x0d").gsub(/\x10\x30/, "\x00").gsub(/\x10\x10/, "\x10")
+		str = str.gsub(/\x10n/, "\x0a").gsub(/\x10r/, "\x0d").gsub(/\x10\x30/, "\x00").gsub(/\x10\x10/, "\x10")
 		str = str.gsub(/\\a/, "\x01").gsub(/\\\\/, "\\")
 		str
 	end

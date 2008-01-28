@@ -9,6 +9,9 @@ require 'rake/rdoctask'
 require 'rake/contrib/rubyforgepublisher'
 require 'rake/contrib/sshpublisher'
 require 'fileutils'
+require 'spec'
+require 'spec/rake/spectask'
+
 include FileUtils
 
 $LOAD_PATH.unshift "lib"
@@ -131,3 +134,8 @@ Rake::ShipitTask.new do |s|
 	s.Task :rubyforge
 end
 
+desc "Run the specs under spec/models"
+Spec::Rake::SpecTask.new do |t|
+	t.spec_opts = ['--options', "spec/spec.opts"]
+	t.spec_files = FileList['spec/*_spec.rb']
+end
