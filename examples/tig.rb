@@ -3,7 +3,7 @@
 
 # tig.rb
 
-Ruby version of Twitter IRC Gateway
+Ruby version of TwitterIrcGateway
 ( http://www.misuzilla.org/dist/net/twitterircgateway/ )
 
 
@@ -324,7 +324,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def api(path, q={})
 		ret = {}
 		q["source"] = "tigrb"
-		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /./)}" } }.join("&")
+		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
 		uri = api_base + "/#{path}?#{q}"
 		@log.debug uri.inspect
 		Net::HTTP.start(uri.host, uri.port) do |http|
