@@ -25,6 +25,21 @@ describe Message, "construct" do
 
 		m = Message.new(nil, "PRIVMSG", ["#channel", "message with space"])
 		m.to_s.should == "PRIVMSG #channel :message with space\r\n"
+
+		m = Message.new(nil, "MODE", [
+			"#channel",
+			"+ooo",
+			"nick1",
+			"nick2",
+			"nick3"
+		])
+		m.to_s.should == "MODE #channel +ooo nick1 nick2 nick3\r\n"
+
+		m = Message.new(nil, "KICK", [
+			"#channel,#channel1",
+			"nick1,nick2",
+		])
+		m.to_s.should == "KICK #channel,#channel1 nick1,nick2\r\n"
 	end
 
 end
