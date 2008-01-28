@@ -434,7 +434,7 @@ class Net::IRC::Client
 
 	def start
 		@socket = TCPSocket.open(@host, @port)
-		on_connected if respond_to?(:on_connected)
+		on_connected
 		post PASS,  @opts.pass if @opts.pass
 		post NICK,  @opts.nick
 		post USER,  @opts.user, "0", "*", @opts.real
@@ -459,7 +459,7 @@ class Net::IRC::Client
 
 	def finish
 		@socket.close
-		on_disconnected if respond_to?(:on_disconnected)
+		on_disconnected
 	end
 
 	def on_message(m)
@@ -693,7 +693,7 @@ class Net::IRC::Server
 		end
 
 		def start
-			on_connect
+			on_connected
 			while l = @socket.gets
 				begin
 					@log.debug "RECEIVE: #{l.chomp}"
@@ -716,6 +716,7 @@ class Net::IRC::Server
 
 		def finish
 			@socket.close
+			on_disconnected
 		end
 
 		def on_pass(m)
@@ -733,13 +734,17 @@ class Net::IRC::Server
 			inital_message
 		end
 
-		def on_connect
+		def on_connected
 		end
 
 		def on_quit
 		end
 
 		def on_message(m)
+		end
+
+		def method_missing(name, *args)
+			# pass to avoid error on calling super
 		end
 
 		private
