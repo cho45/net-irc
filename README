@@ -30,7 +30,7 @@ There are some gateways connecting to webservices.
 
 * Lingr
 * Twitter
-* Wasser
+* Wassr
 
 If you want to run it, type following:
 
@@ -40,7 +40,7 @@ Lingr:
 Twitter:
 	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/tig.rb")'
 
-Wasser:
+Wassr:
 	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/wig.rb")'
 
 
