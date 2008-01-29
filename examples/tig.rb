@@ -341,7 +341,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				'User-Agent'    => @user_agent,
 			}
 			case path
-			when "statuses/update.json", "direct_messages/new.json"
+			when "/statuses/update.json", "/direct_messages/new.json"
 				ret = http.post(uri.request_uri, q, header)
 			else
 				ret = http.get(uri.request_uri, header)
