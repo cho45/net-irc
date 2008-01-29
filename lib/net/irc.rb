@@ -289,7 +289,7 @@ module Net::IRC
 		ISON     = 'ISON'
 	end
 
-	COMMANDS = Constants.constants.inject({}) {|r,i|
+	COMMANDS = Constants.constants.inject({}) {|r,i| # :nodoc:
 		r[Constants.const_get(i)] = i
 		r
 	}
@@ -307,12 +307,14 @@ module Net::IRC
 			extract[2]
 		end
 
+		# Extract prefix string to [nick, user, host] Array.
 		def extract
 			_, *ret = *self.match(/^([^\s!]+)!([^\s@]+)@(\S+)$/)
 			ret
 		end
 	end
 
+	# Encoding to CTCP message. Prefix and postfix \x01.
 	def ctcp_encoding(str)
 		str = str.gsub(/\\/, "\\\\\\\\").gsub(/\x01/, '\a')
 		str = str.gsub(/\x10/, "\x10\x10").gsub(/\x00/, "\x10\x30").gsub(/\x0d/, "\x10r").gsub(/\x0a/, "\x10n")
@@ -320,6 +322,7 @@ module Net::IRC
 	end
 	module_function :ctcp_encoding
 
+	# Decoding to CTCP message. Remove \x01.
 	def ctcp_decoding(str)
 		str = str.gsub(/\x01/, "")
 		str = str.gsub(/\x10n/, "\x0a").gsub(/\x10r/, "\x0d").gsub(/\x10\x30/, "\x00").gsub(/\x10\x10/, "\x10")
@@ -334,9 +337,10 @@ class Net::IRC::Message
 
 	class InvalidMessage < Net::IRC::IRCException; end
 
-
 	attr_reader :prefix, :command, :params
 
+	# Parse string and return new Message.
+	# If the string is invalid message, this method raises Net::IRC::Message::InvalidMessage.
 	def self.parse(str)
 		_, prefix, command, *rest = *PATTERN::MESSAGE_PATTERN.match(str)
 		raise InvalidMessage, "Invalid message: #{str.dump}" unless _
@@ -368,14 +372,17 @@ class Net::IRC::Message
 		@params  = params
 	end
 
+	# Same as @params[n].
 	def [](n)
 		@params[n]
 	end
 
+	# Iterate params.
 	def each(&block)
 		@params.each(&block)
 	end
 
+	# Stringfy message to raw IRC message.
 	def to_s
 		str = ""
 
@@ -401,10 +408,12 @@ class Net::IRC::Message
 	end
 	alias to_str to_s
 
+	# Same as params.
 	def to_a
 		@params
 	end
 
+	# If the message is CTCP, return true.
 	def ctcp?
 		message = @params[1]
 		message[0] == 1 && message[message.length-1] == 1
@@ -426,7 +435,8 @@ class Net::IRC::Client
 	include Net::IRC
 	include Constants
 
-	attr_reader :prefix
+	attr_reader :host, :port, :opts
+	attr_reader :prefix, :channels
 
 	def initialize(host, port, opts={})
 		@host = host
@@ -441,6 +451,7 @@ class Net::IRC::Client
 		}
 	end
 
+	# Connect to server and start loop.
 	def start
 		@socket = TCPSocket.open(@host, @port)
 		on_connected
@@ -467,6 +478,7 @@ class Net::IRC::Client
 		finish
 	end
 
+	# Close connection to server.
 	def finish
 		begin
 			@socket.close
@@ -475,20 +487,23 @@ class Net::IRC::Client
 		on_disconnected
 	end
 
+	# Catch all messages.
+	# If this method return true, aother callback will not be called.
 	def on_message(m)
 	end
 
-	# required
+	# Default RPL_WELCOME callback.
+	# This sets @prefix from the message.
 	def on_rpl_welcome(m)
 		@prefix = Prefix.new(m[1][/\S+!\S+@\S+/])
 	end
 
-	# ping
+	# Default PING callback. Response PONG.
 	def on_ping(m)
 		post PONG, @nick
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_rpl_namreply(m)
 		type    = m[1]
 		channel = m[2]
@@ -519,7 +534,7 @@ class Net::IRC::Client
 		@channels[channel][:modes].uniq!
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_part(m)
 		nick    = m.prefix.nick
 		channel = m[0]
@@ -534,7 +549,7 @@ class Net::IRC::Client
 		end
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_quit(m)
 		nick = m.prefix.nick
 
@@ -546,7 +561,7 @@ class Net::IRC::Client
 		end
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_kick(m)
 		users = m[1].split(/,/)
 		m[0].split(/,/).each do |chan|
@@ -563,7 +578,7 @@ class Net::IRC::Client
 		end
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_join(m)
 		nick    = m.prefix.nick
 		channel = m[0]
@@ -573,7 +588,7 @@ class Net::IRC::Client
 		@channels[channel][:users].uniq!
 	end
 
-	# for managing channel
+	# For managing channel
 	def on_mode(m)
 		channel = m[0]
 		init_channel(channel)
@@ -610,7 +625,7 @@ class Net::IRC::Client
 		[negative_mode, positive_mode]
 	end
 
-	# for managing channel
+	# For managing channel
 	def init_channel(channel)
 		@channels[channel] ||= {
 			:modes => [],
@@ -618,11 +633,26 @@ class Net::IRC::Client
 		}
 	end
 
+	# Do nothing.
+	# This is for avoiding error on calling super.
+	# So you can always call super at subclass.
 	def method_missing(name, *args)
-		# pass to avoid error on calling super
+	end
+
+	# Call when socket connected.
+	def on_connected
+	end
+
+	# Call when socket closed.
+	def on_disconnected
 	end
 
 	private
+
+	# Post message to server.
+	#
+	#     include Net::IRC::Constans
+	#     post PRIVMSG, "#channel", "foobar"
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
 			s.gsub(/[\r\n]/, " ")
@@ -641,6 +671,7 @@ class Net::IRC::Server
 		@sessions      = []
 	end
 
+	# Start server loop.
 	def start
 		@serv = TCPServer.new(@host, @port)
 		@log  = @opts.logger || Logger.new($stdout)
@@ -665,6 +696,7 @@ class Net::IRC::Server
 		@accept.join
 	end
 
+	# Close all sessions.
 	def finish
 		Thread.exclusive do
 			@accept.kill
@@ -683,18 +715,22 @@ class Net::IRC::Server
 		include Net::IRC
 		include Constants
 
+		# Override subclass.
 		def server_name
 			"Net::IRC::Server::Session"
 		end
 
+		# Override subclass.
 		def server_version
 			"0.0.0"
 		end
 
+		# Override subclass.
 		def avaiable_user_modes
 			"eixwy"
 		end
 
+		# Override subclass.
 		def avaiable_channel_modes
 			"spknm"
 		end
@@ -707,6 +743,7 @@ class Net::IRC::Server
 			new(*args).start
 		end
 
+		# Start session loop.
 		def start
 			on_connected
 			while l = @socket.gets
@@ -730,6 +767,7 @@ class Net::IRC::Server
 			finish
 		end
 
+		# Close this session.
 		def finish
 			begin
 				@socket.close
@@ -738,35 +776,51 @@ class Net::IRC::Server
 			on_disconnected
 		end
 
+		# Default PASS callback.
+		# Set @pass.
 		def on_pass(m)
 			@pass = m.params[0]
 		end
 
+		# Default NICK callback.
+		# Set @nick.
 		def on_nick(m)
 			@nick = m.params[0]
 		end
 
+
+		# Default USER callback.
+		# Set @login, @real, @host and call inital_message.
 		def on_user(m)
 			@login, @real = m.params[0], m.params[3]
 			@host = @socket.peeraddr[2]
-			@mask = Prefix.new("#{@nick}!#{@login}@#{@host}")
 			inital_message
 		end
 
+		# Call when socket connected.
 		def on_connected
 		end
 
-		def on_quit
+		# Call when socket closed.
+		def on_disconnected
 		end
 
+		# Catch all messages.
+		# If this method return true, aother callback will not be called.
 		def on_message(m)
 		end
 
+		# Do nothing.
+		# This is for avoiding error on calling super.
+		# So you can always call super at subclass.
 		def method_missing(name, *args)
-			# pass to avoid error on calling super
 		end
 
 		private
+		# Post message to server.
+		#
+		#     include Net::IRC::Constans
+		#     post prefix, PRIVMSG, "#channel", "foobar"
 		def post(prefix, command, *params)
 			m = Message.new(prefix, command, params.map {|s|
 				s.gsub(/[\r\n]/, " ")
@@ -775,6 +829,8 @@ class Net::IRC::Server
 			@socket << m
 		end
 
+		# Call when client connected.
+		# Send RPL_WELCOME sequence. If you want to customize, override this method at subclass.
 		def inital_message
 			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@mask}"
 			post nil, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
