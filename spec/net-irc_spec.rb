@@ -77,6 +77,13 @@ describe Net::IRC::Message, "parse" do
 		m.command.should == "PRIVMSG"
 		m.params.should  == ["#channel", "message leading :"]
 	end
+
+	it "should allow space at end" do
+		m = Message.parse("JOIN #foobar \r\n")
+		m.prefix.should  == ""
+		m.command.should == "JOIN"
+		m.params.should  == ["#foobar"]
+	end
 end
 
 describe Net::IRC::Constants, "lookup" do
@@ -193,18 +200,18 @@ describe Net::IRC, "server and client" do
 		Thread.abort_on_exception = true
 		Thread.start do
 			@server = Net::IRC::Server.new("localhost", @port, TestServerSession, {
-				:out => StringIO.new,
+				:logger => Logger.new(nil),
 			})
 			@server.start
 		end
 
 		Thread.start do
 			@client = TestClient.new("localhost", @port, {
-				:nick => "foonick",
-				:user => "foouser",
-				:real => "foo real name",
-				:pass => "foopass",
-				:out  => StringIO.new,
+				:nick   => "foonick",
+				:user   => "foouser",
+				:real   => "foo real name",
+				:pass   => "foopass",
+				:logger => Logger.new(nil),
 			})
 			@client.start
 		end

@@ -73,7 +73,7 @@ module Net::IRC
 		# crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
 		# message    =  [ ":" prefix SPACE ] command [ params ] crlf
 		CRLF = '\x0D\x0A'
-		MESSAGE = "(?::(#{PREFIX}) )?(#{COMMAND})#{PARAMS}#{CRLF}"
+		MESSAGE = "(?::(#{PREFIX}) )?(#{COMMAND})#{PARAMS}\s*#{CRLF}"
 
 		CLIENT_PATTERN  = /\A#{NICKNAME}(?:(?:!#{USER})?@#{HOST})\z/on
 		MESSAGE_PATTERN = /\A#{MESSAGE}\z/on

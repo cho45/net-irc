@@ -20,6 +20,8 @@ IRC library. This is mostly conform to RFC1459 but partly not for convenience.
 
 == Features/Problems
 
+* IRC client (for bot)
+* IRC server (for gateway to webservices)
 
 == Synopsis
 
