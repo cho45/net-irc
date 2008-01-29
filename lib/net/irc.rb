@@ -792,7 +792,7 @@ class Net::IRC::Server
 
 
 		# Default USER callback.
-		# Set @login, @real, @host and call inital_message.
+		# Set @user, @real, @host and call inital_message.
 		def on_user(m)
 			@user, @real = m.params[0], m.params[3]
 			@host = @socket.peeraddr[2]
