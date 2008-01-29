@@ -290,8 +290,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		friends = api("statuses/friends")
 		if first && !@opts.include?("athack")
 			@friends = friends
-			post nil, RPL_NAMREPLY,   server_name, @nick, "=", main_channel, @friends.map{|i| i["screen_name"] }.join(" ")
-			post nil, RPL_ENDOFNAMES, server_name, @nick, main_channel, "End of NAMES list"
+			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| i["screen_name"] }.join(" ")
+			post nil, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
