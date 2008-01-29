@@ -11,13 +11,13 @@ Ruby version of TwitterIrcGateway
 
 Options specified by after irc realname.
 
-Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
 	twitter {
 		host: localhost
 		port: 16668
 		name: username@example.com athack
-		password: password on twitter
+		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -28,7 +28,7 @@ If `athack` client options specified,
 all nick in join message is leading with @.
 
 So if you complemente nicks (ex. irssi),
-it's good for twitter like reply command (@nick).
+it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
@@ -75,12 +75,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@api_base ||= URI("http://twitter.com/")
 	end
 
+	def api_source
+		@api_source ||= "tigrb"
+	end
+
 	class ApiFailed < StandardError; end
 
 	def initialize(*args)
 		super
 		@groups = {}
 		@channels = [] # join channels (groups)
+		@user_agent = "#{self.class}/#{server_version} (tig.rb)"
 		@config = Pathname.new(ENV["HOME"]) + ".tig"
 		load_config
 	end
@@ -88,7 +93,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_user(m)
 		super
 		post @mask, JOIN, main_channel
-		@real, @opts = @real.split(/\s/)
+		@real, @opts = @real.split(/\s+/)
 		@opts ||= []
 		@log.info "Client Options: #{@opts.inspect}"
 
@@ -129,10 +134,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		target, message = *m.params
 		begin
 			if target =~ /^#/
-				ret = api("statuses/update.json", {"status" => message})
+				ret = api("statuses/update", {"status" => message})
 			else
 				# direct message
-				ret = api("direct_messages/new.json", {"user" => target, "text" => message})
+				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
 			raise ApiFailed, "api failed" unless ret
 			log "Status Updated"
@@ -165,8 +170,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		case
 		when channel == main_channel
-			#     "<channel> <user> <host> <server> <nick> 
-			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ] 
+			#     "<channel> <user> <host> <server> <nick>
+			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
 			#             :<hopcount> <real name>"
 			@friends.each do |f|
 				user = nick = f["screen_name"]
@@ -239,7 +244,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_timeline
 		first = true unless @prev_time
 		@prev_time = Time.at(0) if first
-		api("statuses/friends_timeline.json", {"since" => [@prev_time.httpdate] }).reverse_each do |s|
+		api("statuses/friends_timeline", {"since" => [@prev_time.httpdate]}).reverse_each do |s|
 			nick = s["user"]["screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"]) rescue Time.now
@@ -269,7 +274,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_direct_messages
 		first = true unless @prev_time_d
 		@prev_time_d = Time.now if first
-		api("direct_messages.json", {"since" => [@prev_time_d.httpdate] }).reverse_each do |s|
+		api("direct_messages", {"since" => [@prev_time_d.httpdate] }).reverse_each do |s|
 			nick = s["sender_screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"])
@@ -282,7 +287,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_friends
 		first = true unless @friends
 		@friends ||= []
-		friends = api("statuses/friends.json")
+		friends = api("statuses/friends")
 		if first && !@opts.include?("athack")
 			@friends = friends
 			post nil, RPL_NAMREPLY,   server_name, @nick, "=", main_channel, @friends.map{|i| i["screen_name"] }.join(" ")
@@ -323,13 +328,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def api(path, q={})
 		ret = {}
-		q["source"] = "tigrb"
+		path = path.sub(%r{^/*}, '/') << '.json'
+		q["source"] = api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
-		uri = api_base + "/#{path}?#{q}"
+		uri = api_base.dup
+		uri.path  = path
+		uri.query = q
 		@log.debug uri.inspect
 		Net::HTTP.start(uri.host, uri.port) do |http|
 			header = {
 				'Authorization' => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
+				'User-Agent'    => @user_agent,
 			}
 			case path
 			when "statuses/update.json", "direct_messages/new.json"
@@ -366,10 +375,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def untinyurl(text)
-		text.gsub(%r|http://tinyurl.com/[0-9a-z=]+|i) {|m|
+		text.gsub(%r|http://(preview\.)?tinyurl\.com/[0-9a-z=]+|i) {|m|
 			uri = URI(m)
+			uri.host = uri.host.sub($1, '') if $1
 			Net::HTTP.start(uri.host, uri.port) {|http|
-				http.head(uri.request_uri)["Location"]
+				http.open_timeout = 3
+				begin
+					http.head(uri.request_uri, { 'User-Agent' => @user_agent })["Location"]
+				rescue Timeout::Error
+					m
+				end
 			}
 		}
 	end
@@ -379,11 +394,10 @@ if __FILE__ == $0
 	require "optparse"
 
 	opts = {
-		:port   => 16668,
-		:host   => "localhost",
-		:debug  => false,
-		:log    => nil,
-		:debug  => false,
+		:port  => 16668,
+		:host  => "localhost",
+		:debug => false,
+		:log   => nil,
 	}
 
 	OptionParser.new do |parser|
@@ -396,11 +410,11 @@ if __FILE__ == $0
 			separator ""
 
 			separator "Options:"
-			on("-p", "--port [PORT=#{opts[:port]}]", "listen port number") do |port|
+			on("-p", "--port [PORT=#{opts[:port]}]", "port number to listen") do |port|
 				opts[:port] = port
 			end
 
-			on("-h", "--host [HOST=#{opts[:host]}]", "listen host") do |host|
+			on("-h", "--host [HOST=#{opts[:host]}]", "host name or IP address to listen") do |host|
 				opts[:host] = host
 			end
 
@@ -442,5 +456,4 @@ if __FILE__ == $0
 		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start
 	end
 end
-
 
