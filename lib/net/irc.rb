@@ -401,6 +401,11 @@ class Net::IRC::Message
 	end
 	alias to_str to_s
 
+	def ctcp?
+		message = @params[1]
+		message[0] == 1 && message[message.length-1] == 1
+	end
+
 	def inspect
 		'#<%s:0x%x prefix:%s command:%s params:%s>' % [
 			self.class,

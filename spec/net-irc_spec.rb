@@ -42,6 +42,10 @@ describe Net::IRC::Message, "construct" do
 		m.to_s.should == "KICK #channel,#channel1 nick1,nick2\r\n"
 	end
 
+	it "should have ctcp? method" do
+		m = Message.new("foo", "PRIVMSG", ["#channel", "\x01ACTION foo\x01"])
+		m.ctcp?.should be_true
+	end
 end
 
 describe Net::IRC::Message, "parse" do
