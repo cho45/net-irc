@@ -207,7 +207,7 @@ end
 
 describe Net::IRC, "server and client" do
 	before :all do
-		@port = rand(0xffff) + 1000
+		@port = nil
 		@server, @client = nil, nil
 
 		Thread.abort_on_exception = true
@@ -217,6 +217,8 @@ describe Net::IRC, "server and client" do
 			})
 			@server.start
 		end
+
+		@port = @server.instance_variable_get(:@serv).addr[1]
 
 		Thread.start do
 			@client = TestClient.new("localhost", @port, {

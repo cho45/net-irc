@@ -715,6 +715,8 @@ class Net::IRC::Server
 		include Net::IRC
 		include Constants
 
+		attr_reader :prefix, :nick, :real, :host
+
 		# Override subclass.
 		def server_name
 			"Net::IRC::Server::Session"
@@ -792,8 +794,9 @@ class Net::IRC::Server
 		# Default USER callback.
 		# Set @login, @real, @host and call inital_message.
 		def on_user(m)
-			@login, @real = m.params[0], m.params[3]
+			@user, @real = m.params[0], m.params[3]
 			@host = @socket.peeraddr[2]
+			@prefix = Prefix.new("#{@nick}!#{@user}@#{@host}")
 			inital_message
 		end
 
@@ -832,7 +835,7 @@ class Net::IRC::Server
 		# Call when client connected.
 		# Send RPL_WELCOME sequence. If you want to customize, override this method at subclass.
 		def inital_message
-			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@mask}"
+			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@prefix}"
 			post nil, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
 			post nil, RPL_CREATED,  @nick, "This server was created #{Time.now}"
 			post nil, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{avaiable_user_modes} #{avaiable_channel_modes}"
