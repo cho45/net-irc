@@ -8,7 +8,7 @@ require "logger"
 module Net; end
 
 module Net::IRC
-	VERSION = "0.0.0"
+	VERSION = "0.0.1"
 	class IRCException < StandardError; end
 
 	module PATTERN # :nodoc:
