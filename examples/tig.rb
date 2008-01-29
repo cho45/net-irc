@@ -92,7 +92,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_user(m)
 		super
-		post @mask, JOIN, main_channel
+		post @prefix, JOIN, main_channel
 		@real, @opts = @real.split(/\s+/)
 		@opts ||= []
 		@log.info "Client Options: #{@opts.inspect}"
