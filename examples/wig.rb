@@ -60,7 +60,7 @@ class WassrIrcGateway < TwitterIrcGateway
 	end
 
 	def api_source
-		@api_source ||= "wigrb"
+		@api_source ||= "wig.rb"
 	end
 end
 
