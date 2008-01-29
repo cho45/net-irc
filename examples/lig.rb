@@ -193,9 +193,84 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	end
 end
 
-@config = Pit.get("lig.rb", :require => {
-	"api_key" => "API key of lingr"
-})
 
-Net::IRC::Server.new("localhost", 16669, LingrIrcGateway, @config).start
+if __FILE__ == $0
+	require "rubygems"
+	require "optparse"
+	require "pit"
+
+	opts = {
+		:port   => 16669,
+		:host   => "localhost",
+		:debug  => false,
+		:log    => nil,
+		:debug  => false,
+	}
+
+	OptionParser.new do |parser|
+		parser.instance_eval do
+			self.banner  = <<-EOB.gsub(/^\t+/, "")
+				Usage: #{$0} [opts]
+
+			EOB
+
+			separator ""
+
+			separator "Options:"
+			on("-p", "--port [PORT=#{opts[:port]}]", "listen port number") do |port|
+				opts[:port] = port
+			end
+
+			on("-h", "--host [HOST=#{opts[:host]}]", "listen host") do |host|
+				opts[:host] = host
+			end
+
+			on("-l", "--log LOG", "log file") do |log|
+				opts[:log] = log
+			end
+
+			on("-a", "--api_key API_KEY", "Your api key on Lingr") do |key|
+				opts[:api_key] = key
+			end
+
+			on("--debug", "Enable debug mode") do |debug|
+				opts[:log]   = $stdout
+				opts[:debug] = true
+			end
+
+			parse!(ARGV)
+		end
+	end
+
+	opts[:logger] = Logger.new(opts[:log], "daily")
+	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
+
+	def daemonize(debug=false)
+		return yield if $DEBUG || debug
+		Process.fork do
+			Process.setsid
+			Dir.chdir "/"
+			trap("SIGINT")  { exit! 0 }
+			trap("SIGTERM") { exit! 0 }
+			trap("SIGHUP")  { exit! 0 }
+			File.open("/dev/null") {|f|
+				STDIN.reopen  f
+				STDOUT.reopen f
+				STDERR.reopen f
+			}
+			yield
+		end
+		exit! 0
+	end
+
+	opts[:api_key] = Pit.get("lig.rb", :require => {
+		"api_key" => "API key of lingr"
+	})["api_key"] unless opts[:api_key]
+
+	daemonize(opts[:debug]) do
+		Net::IRC::Server.new(opts[:host], opts[:port], LingrIrcGateway, opts).start
+	end
+
+end
+
 

@@ -428,7 +428,7 @@ class Net::IRC::Client
 		@host = host
 		@port = port
 		@opts = OpenStruct.new(opts)
-		@log  = Logger.new(@opts.out || $stdout)
+		@log  = @opts.logger || Logger.new($stdout)
 		@channels = {
 #			"#channel" => {
 #				:modes => [],
@@ -639,7 +639,7 @@ class Net::IRC::Server
 
 	def start
 		@serv = TCPServer.new(@host, @port)
-		@log  = Logger.new(@opts.out || $stdout)
+		@log  = @opts.logger || Logger.new($stdout)
 		@log.info "Host: #{@host} Port:#{@port}"
 		@accept = Thread.start do
 			loop do
