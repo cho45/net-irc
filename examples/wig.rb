@@ -58,6 +58,10 @@ class WassrIrcGateway < TwitterIrcGateway
 	def api_base
 		@api_base ||= URI("http://api.wassr.jp/")
 	end
+
+	def api_source
+		@api_source ||= "wigrb"
+	end
 end
 
 if __FILE__ == $0
@@ -81,11 +85,11 @@ if __FILE__ == $0
 			separator ""
 
 			separator "Options:"
-			on("-p", "--port [PORT=#{opts[:port]}]", "listen port number") do |port|
+			on("-p", "--port [PORT=#{opts[:port]}]", "port number to listen") do |port|
 				opts[:port] = port
 			end
 
-			on("-h", "--host [HOST=#{opts[:host]}]", "listen host") do |host|
+			on("-h", "--host [HOST=#{opts[:host]}]", "host name or IP address to listen") do |host|
 				opts[:host] = host
 			end
 
@@ -127,6 +131,4 @@ if __FILE__ == $0
 		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
 	end
 end
-
-
 
