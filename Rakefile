@@ -8,7 +8,6 @@ require 'rake/rdoctask'
 require 'rake/contrib/rubyforgepublisher'
 require 'rake/contrib/sshpublisher'
 require 'fileutils'
-require 'spec'
 require 'spec/rake/spectask'
 
 include FileUtils

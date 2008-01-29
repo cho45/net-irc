@@ -7,9 +7,11 @@ require "net/irc"
 include Net::IRC
 include Constants
 
-require "rubygems"
-gem "rspec"
-require "spec"
+if $0 == __FILE__
+	require "rubygems"
+	gem "rspec"
+	require "spec"
+end
 
 describe Net::IRC::Message, "construct" do
 
@@ -45,6 +47,17 @@ describe Net::IRC::Message, "construct" do
 	it "should have ctcp? method" do
 		m = Message.new("foo", "PRIVMSG", ["#channel", "\x01ACTION foo\x01"])
 		m.ctcp?.should be_true
+	end
+
+	it "should behave as Array contains params" do
+		m = Message.new("foo", "PRIVMSG", ["#channel", "message"])
+		m[0].should   == m.params[0]
+		m[1].should   == m.params[1]
+		m.to_a.should == ["#channel", "message"]
+
+		channel, message = *m
+		channel.should == "#channel"
+		message.should == "message"
 	end
 end
 

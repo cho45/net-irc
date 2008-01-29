@@ -25,6 +25,27 @@ IRC library. This is mostly conform to RFC1459 but partly not for convenience.
 
 == Synopsis
 
+=== Client
+
+	require "net/irc"
+
+	class SimpleClient < Net::IRC::Client
+		def on_privmsg(m)
+			super
+			channel, message = *m
+			if message =~ /Hello/
+				post NOTICE, channel, "Hello!"
+			end
+		end
+	end
+
+Net::IRC::Client manages channel status and the information is set in @channels.
+So, be careful to use @channels instance variable and call super surely.
+
+=== Server
+
+see example/lig.rb
+
 
 == IRC Gateways
 
@@ -36,14 +57,30 @@ There are some gateways connecting to webservices.
 
 If you want to run it, type following:
 
+	$ cd `ruby -rubygems -e 'print Gem.searcher.find("net/irc").full_gem_path+"/examples"'`
+
 Lingr:
-	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/lig.rb")'
+	$ sudo gem install pit # for configuration
+	$ ./lig.rb
 
 Twitter:
-	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/tig.rb")'
+	$ ./tig.rb
 
 Wassr:
-	$ ruby -rubygems -e 'exec("ruby", Gem.searcher.find("net/irc").full_gem_path+"/examples/wig.rb")'
+	$ ./wig.rb
+
+Run as daemon in default. If you want to help:
+
+	$ ./lig.rb --help
+	Usage: ./lig.rb [opts]
+	
+	
+	Options:
+	    -p, --port [PORT=16669]          listen port number
+	    -h, --host [HOST=localhost]      listen host
+	    -l, --log LOG                    log file
+	    -a, --api_key API_KEY            Your api key on Lingr
+	        --debug                      Enable debug mode
 
 
 == Copyright

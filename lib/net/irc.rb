@@ -11,7 +11,7 @@ module Net::IRC
 	VERSION = "0.0.0"
 	class IRCException < StandardError; end
 
-	module PATTERN
+	module PATTERN # :nodoc:
 		# letter     =  %x41-5A / %x61-7A       ; A-Z / a-z
 		# digit      =  %x30-39                 ; 0-9
 		# hexdigit   =  digit / "A" / "B" / "C" / "D" / "E" / "F"
@@ -79,7 +79,7 @@ module Net::IRC
 		MESSAGE_PATTERN = /\A#{MESSAGE}\z/on
 	end # PATTERN
 
-	module Constants
+	module Constants # :nodoc:
 		RPL_WELCOME           = '001'
 		RPL_YOURHOST          = '002'
 		RPL_CREATED           = '003'
@@ -400,6 +400,10 @@ class Net::IRC::Message
 		str
 	end
 	alias to_str to_s
+
+	def to_a
+		@params
+	end
 
 	def ctcp?
 		message = @params[1]
