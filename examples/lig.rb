@@ -37,7 +37,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_user(m)
 		super
-		@real, @copts = @real.split(/\s/)
+		@real, @copts = @real.split(/\s+/)
 		@copts ||= []
 
 		log "Hello #{@nick}, this is Lingr IRC Gateway."
@@ -217,11 +217,11 @@ if __FILE__ == $0
 			separator ""
 
 			separator "Options:"
-			on("-p", "--port [PORT=#{opts[:port]}]", "listen port number") do |port|
+			on("-p", "--port [PORT=#{opts[:port]}]", "port number to listen") do |port|
 				opts[:port] = port
 			end
 
-			on("-h", "--host [HOST=#{opts[:host]}]", "listen host") do |host|
+			on("-h", "--host [HOST=#{opts[:host]}]", "host name or IP address to listen") do |host|
 				opts[:host] = host
 			end
 
@@ -264,7 +264,7 @@ if __FILE__ == $0
 	end
 
 	opts[:api_key] = Pit.get("lig.rb", :require => {
-		"api_key" => "API key of lingr"
+		"api_key" => "API key of Lingr"
 	})["api_key"] unless opts[:api_key]
 
 	daemonize(opts[:debug]) do
