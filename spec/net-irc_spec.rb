@@ -7,12 +7,6 @@ require "net/irc"
 include Net::IRC
 include Constants
 
-if $0 == __FILE__
-	require "rubygems"
-	gem "rspec"
-	require "spec"
-end
-
 describe Net::IRC::Message, "construct" do
 
 	it "should generate message correctly" do
@@ -72,6 +66,16 @@ describe Net::IRC::Message, "parse" do
 		m.prefix.should  == ""
 		m.command.should == "PRIVMSG"
 		m.params.should  == ["#channel", "message leading :"]
+
+		m = Message.parse("PRIVMSG #channel middle :message leading :\r\n")
+		m.prefix.should  == ""
+		m.command.should == "PRIVMSG"
+		m.params.should  == ["#channel", "middle", "message leading :"]
+
+		m = Message.parse("PRIVMSG #channel middle message with middle\r\n")
+		m.prefix.should  == ""
+		m.command.should == "PRIVMSG"
+		m.params.should  == ["#channel", "middle", "message", "with", "middle"]
 
 		m = Message.parse(":prefix PRIVMSG #channel message\r\n")
 		m.prefix.should  == "prefix"
