@@ -222,6 +222,8 @@ describe Net::IRC, "server and client" do
 			@server.start
 		end
 
+		true until @server.instance_variable_get(:@serv)
+
 		@port = @server.instance_variable_get(:@serv).addr[1]
 
 		Thread.start do

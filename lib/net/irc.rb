@@ -4,6 +4,7 @@ require "ostruct"
 require "socket"
 require "thread"
 require "logger"
+require "monitor"
 
 module Net; end
 
@@ -449,6 +450,7 @@ class Net::IRC::Client
 #				:users => [],
 #			}
 		}
+		@channels.extend(MonitorMixin)
 	end
 
 	# Connect to server and start loop.
@@ -509,29 +511,31 @@ class Net::IRC::Client
 		channel = m[2]
 		init_channel(channel)
 
-		m[3].split(/\s+/).each do |u|
-			_, mode, nick = *u.match(/^([@+]?)(.+)/)
+		@channels.synchronize do
+			m[3].split(/\s+/).each do |u|
+				_, mode, nick = *u.match(/^([@+]?)(.+)/)
 
-			@channels[channel][:users] << nick
-			@channels[channel][:users].uniq!
+				@channels[channel][:users] << nick
+				@channels[channel][:users].uniq!
 
-			case mode
-			when "@" # channel operator
-				@channels[channel][:modes] << ["o", nick]
-			when "+" # voiced (under moderating mode)
-				@channels[channel][:modes] << ["v", nick]
+				case mode
+				when "@" # channel operator
+					@channels[channel][:modes] << ["o", nick]
+				when "+" # voiced (under moderating mode)
+					@channels[channel][:modes] << ["v", nick]
+				end
 			end
-		end
 
-		case type
-		when "@" # secret
-			@channels[channel][:modes] << ["s", nil]
-		when "*" # private
-			@channels[channel][:modes] << ["p", nil]
-		when "=" # public
-		end
+			case type
+			when "@" # secret
+				@channels[channel][:modes] << ["s", nil]
+			when "*" # private
+				@channels[channel][:modes] << ["p", nil]
+			when "=" # public
+			end
 
-		@channels[channel][:modes].uniq!
+			@channels[channel][:modes].uniq!
+		end
 	end
 
 	# For managing channel
@@ -540,12 +544,14 @@ class Net::IRC::Client
 		channel = m[0]
 		init_channel(channel)
 
-		info = @channels[channel]
-		if info
-			info[:users].delete(nick)
-			info[:modes].delete_if {|u|
-				u[1] == nick
-			}
+		@channels.synchronize do
+			info = @channels[channel]
+			if info
+				info[:users].delete(nick)
+				info[:modes].delete_if {|u|
+					u[1] == nick
+				}
+			end
 		end
 	end
 
@@ -553,26 +559,31 @@ class Net::IRC::Client
 	def on_quit(m)
 		nick = m.prefix.nick
 
-		@channels.each do |channel, info|
-			info[:users].delete(nick)
-			info[:modes].delete_if {|u|
-				u[1] == nick
-			}
+		@channels.synchronize do
+			@channels.each do |channel, info|
+				info[:users].delete(nick)
+				info[:modes].delete_if {|u|
+					u[1] == nick
+				}
+			end
 		end
 	end
 
 	# For managing channel
 	def on_kick(m)
 		users = m[1].split(/,/)
-		m[0].split(/,/).each do |chan|
-			init_channel(chan)
-			info = @channels[chan]
-			if info
-				users.each do |nick|
-					info[:users].delete(nick)
-					info[:modes].delete_if {|u|
-						u[1] == nick
-					}
+
+		@channels.synchronize do
+			m[0].split(/,/).each do |chan|
+				init_channel(chan)
+				info = @channels[chan]
+				if info
+					users.each do |nick|
+						info[:users].delete(nick)
+						info[:modes].delete_if {|u|
+							u[1] == nick
+						}
+					end
 				end
 			end
 		end
@@ -582,47 +593,52 @@ class Net::IRC::Client
 	def on_join(m)
 		nick    = m.prefix.nick
 		channel = m[0]
-		init_channel(channel)
 
-		@channels[channel][:users] << nick
-		@channels[channel][:users].uniq!
+		@channels.synchronize do
+			init_channel(channel)
+
+			@channels[channel][:users] << nick
+			@channels[channel][:users].uniq!
+		end
 	end
 
 	# For managing channel
 	def on_mode(m)
 		channel = m[0]
-		init_channel(channel)
+		@channels.synchronize do
+			init_channel(channel)
 
-		positive_mode = []
-		negative_mode = []
+			positive_mode = []
+			negative_mode = []
 
-		mode = positive_mode
-		arg_pos = 0
-		m[1].each_byte do |c|
-			case c
-			when ?+
-				mode = positive_mode
-			when ?-
-				mode = negative_mode
-			when ?o, ?v, ?k, ?l, ?b, ?e, ?I
-				mode << [c.chr, m[arg_pos + 2]]
-				arg_pos += 1
-			else
-				mode << [c.chr, nil]
+			mode = positive_mode
+			arg_pos = 0
+			m[1].each_byte do |c|
+				case c
+				when ?+
+					mode = positive_mode
+				when ?-
+					mode = negative_mode
+				when ?o, ?v, ?k, ?l, ?b, ?e, ?I
+					mode << [c.chr, m[arg_pos + 2]]
+					arg_pos += 1
+				else
+					mode << [c.chr, nil]
+				end
 			end
-		end
-		mode = nil
+			mode = nil
 
-		negative_mode.each do |m|
-			@channels[channel][:modes].delete(m)
-		end
+			negative_mode.each do |m|
+				@channels[channel][:modes].delete(m)
+			end
 
-		positive_mode.each do |m|
-			@channels[channel][:modes] << m
-		end
+			positive_mode.each do |m|
+				@channels[channel][:modes] << m
+			end
 
-		@channels[channel][:modes].uniq!
-		[negative_mode, positive_mode]
+			@channels[channel][:modes].uniq!
+			[negative_mode, positive_mode]
+		end
 	end
 
 	# For managing channel
