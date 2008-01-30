@@ -350,7 +350,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.debug ret.inspect
 		case ret.code
 		when "200"
-			JSON.parse(ret.body)
+			JSON.parse(ret.body.gsub(/'(y(?:es)?|n(?:o)?|true|false|null)'/, '"\1"'))
 		when "304"
 			[]
 		else
