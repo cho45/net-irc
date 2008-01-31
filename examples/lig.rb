@@ -49,6 +49,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@lingr.create_session('human')
 		@lingr.login(@real, @pass)
 		@user_info = @lingr.get_user_info[:response]
+
+		u_id, o_id, prefix = *make_ids(@user_info)
+		post @prefix, NICK, prefix.nick
 	end
 
 	def on_privmsg(m)
@@ -68,8 +71,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		if res[:succeeded]
 			res = res[:response]
 			res["occupants"].each do |o|
-				u_id, o_id, nick = *make_ids(o)
-				post nil, RPL_WHOREPLY, channel, o_id, "lingr.com", "lingr.com", nick, "H", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
+				u_id, o_id, prefix = *make_ids(o)
+				post nil, RPL_WHOREPLY, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
 			end
 			post nil, RPL_ENDOFWHO, channel
 		else
@@ -86,8 +89,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
 			if res[:succeeded]
 				res[:response]["password"] = password
-				o_id = res[:response]["occupant_id"]
-				post "#{@nick}!#{o_id}@lingr.com", JOIN, channel
+
+				u_id, o_id, prefix = *make_ids(@user_info)
+				post prefix, JOIN, channel
+				post server_name, MODE, channel, "+o", prefix.nick
+
 				create_observer(channel, res[:response])
 			else
 				log "Error: #{(res && rese['error']) ? res[:response]["error"]["message"] : "socket error"}"
@@ -132,24 +138,31 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						(res[:response]["messages"] || []).each do |m|
 							next if m["id"].to_i <= info[:hcounter]
 
-							u_id, o_id, nick = *make_ids(m)
+							u_id, o_id, prefix = *make_ids(m)
 
 							case m["type"]
 							when "user"
 								if first
-									post nick, NOTICE, chan, m["text"]
+									post prefix, NOTICE, chan, m["text"]
 								else
-									post nick, PRIVMSG, chan, m["text"] unless info[:o_id] == o_id
+									post prefix, PRIVMSG, chan, m["text"] unless info[:o_id] == o_id
 								end
 							when "private"
 								# TODO
-								post nick, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
+								post prefix, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
 							when "system:enter"
-								post "#{nick}!#{o_id}@lingr.com", JOIN, chan unless nick == @nick
+								_, _, myprefix = *make_ids(@user_info)
+								unless prefix.nick == myprefix.nick
+									post prefix, JOIN, chan
+									post server_name, MODE, chan, "+o", prefix.nick
+								end
 							when "system:leave"
-								post "#{nick}!#{o_id}@lingr.com", PART, chan unless u_id == @user_info["user_id"]
+								_, _, myprefix = *make_ids(@user_info)
+								unless prefix.nick == myprefix.nick
+									post prefix, PART, chan
+								end
 							when "system:nickname_change"
-								post nick, NOTICE, chan, m["text"]
+								post prefix, NOTICE, chan, m["text"]
 							when "system:broadcast"
 								post nil,  NOTICE, chan, m["text"]
 							end
@@ -162,8 +175,10 @@ class LingrIrcGateway < Net::IRC::Server::Session
 								# new_roster[o["id"]] = o["nickname"]
 								if o["nickname"]
 									nick = o["nickname"]
-									o_id = m["occupant_id"]
-									post "#{nick}!#{o_id}@lingr.com", JOIN, chan
+									u_id, o_id, prefix = make_ids(o)
+
+									post prefix, JOIN, chan
+									post server_name, MODE, chan, "+o", prefix.nick
 								end
 							end
 						end
@@ -186,10 +201,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def make_ids(o)
-		u_id = o["user_id"]
+		u_id = o["user_id"] || "anon"
 		o_id = o["occupant_id"] || o["id"]
-		nick = o["nickname"].gsub(/\s+/, "") + "^#{u_id || "anon"}"
-		[u_id, o_id, nick]
+		nick = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "") + "|#{u_id}"
+		pref = Prefix.new("#{nick}!#{u_id}@lingr.com")
+		[u_id, o_id, pref]
 	end
 end
 
