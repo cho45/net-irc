@@ -735,7 +735,7 @@ class Net::IRC::Server
 
 		# Override subclass.
 		def server_name
-			"Net::IRC::Server::Session"
+			"net-irc"
 		end
 
 		# Override subclass.
@@ -851,10 +851,10 @@ class Net::IRC::Server
 		# Call when client connected.
 		# Send RPL_WELCOME sequence. If you want to customize, override this method at subclass.
 		def inital_message
-			post nil, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@prefix}"
-			post nil, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
-			post nil, RPL_CREATED,  @nick, "This server was created #{Time.now}"
-			post nil, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{avaiable_user_modes} #{avaiable_channel_modes}"
+			post server_name, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@prefix}"
+			post server_name, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
+			post server_name, RPL_CREATED,  @nick, "This server was created #{Time.now}"
+			post server_name, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{avaiable_user_modes} #{avaiable_channel_modes}"
 		end
 	end
 end # Server
