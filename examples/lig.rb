@@ -164,9 +164,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 									post prefix, PART, chan
 								end
 							when "system:nickname_change"
-								post prefix, NOTICE, chan, m["text"]
+								m["nickname"] = m["new_nickname"]
+								_, _, newprefix = *make_ids(m)
+								post prefix, NICK, newprefix.nick
 							when "system:broadcast"
-								post nil,  NOTICE, chan, m["text"]
+								post "system.broadcast",  NOTICE, chan, m["text"]
 							end
 
 							info[:hcounter] = m["id"].to_i if m["id"]
