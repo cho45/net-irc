@@ -109,7 +109,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			info[:observer].kill
 			@lingr.exit_room(info[:ticket])
 			@channels.delete(channel.downcase)
-			post @nick, PART, channel, "Parted"
+
+			u_id, o_id, prefix = *make_ids(@user_info)
+			post prefix, PART, channel, "Parted"
 		end
 	end
 
@@ -203,7 +205,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def make_ids(o)
 		u_id = o["user_id"] || "anon"
 		o_id = o["occupant_id"] || o["id"]
-		nick = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "") + "|#{u_id}"
+		nick = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "") + "|#{o["user_id"] || o_id}"
 		pref = Prefix.new("#{nick}!#{u_id}@lingr.com")
 		[u_id, o_id, pref]
 	end
