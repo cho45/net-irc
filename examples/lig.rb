@@ -110,18 +110,26 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		password = m.params[1]
 		channels.each do |channel|
 			next if @channels.key? channel.downcase
-			@log.debug "Enter room -> #{channel}"
-			res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
-			if res[:succeeded]
-				res[:response]["password"] = password
+			begin
+				@log.debug "Enter room -> #{channel}"
+				res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
+				if res[:succeeded]
+					res[:response]["password"] = password
 
-				u_id, o_id, prefix = *make_ids(@user_info)
-				post prefix, JOIN, channel
-				post server_name, MODE, channel, "+o", prefix.nick
+					u_id, o_id, prefix = *make_ids(@user_info)
+					post prefix, JOIN, channel
+					post server_name, MODE, channel, "+o", prefix.nick
 
-				create_observer(channel, res[:response])
-			else
-				log "Error: #{(res && rese['error']) ? res[:response]["error"]["message"] : "socket error"}"
+					create_observer(channel, res[:response])
+				else
+					log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
+					log "Coundn't join to #{channel}."
+				end
+			rescue Exception => e
+				@log.error e.message
+				e.backtrace.each do |l|
+					@log.error "\t#{l}"
+				end
 			end
 		end
 	end
@@ -216,20 +224,27 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						end
 					else
 						@log.debug "observe failed : #{res[:response].inspect}"
-						log "Error: #{(res && res['error']) ? res[:response]["error"]["message"] : "socket error"}"
+						log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
 					end
 					first = false
 				end
 			rescue Exception => e
-				puts e
-				puts e.backtrace
+				@log.error e.message
+				e.backtrace.each do |l|
+					@log.error "\t#{l}"
+				end
 			end
 		end
 	end
 
 	def log(str)
 		str.gsub!(/\s/, " ")
-		post nil, NOTICE, @nick, str
+		begin
+			myu_id, myo_id, myprefix = *make_ids(@user_info)
+			post nil, NOTICE, myprefix.nick, str
+		rescue
+			post nil, NOTICE, @nick, str
+		end
 	end
 
 	def make_ids(o)
