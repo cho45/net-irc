@@ -97,7 +97,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_part(m)
 		channel = m.params[0]
-		info = @channels[channel].downcase
+		info = @channels[channel.downcase]
 
 		if info
 			info[:observer].kill
@@ -147,7 +147,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 							when "system:enter"
 								post "#{nick}!#{o_id}@lingr.com", JOIN, chan unless nick == @nick
 							when "system:leave"
-								#post "#{nick}!#{o_id}@lingr.com", PART, chan unless nick == @nick
+								post "#{nick}!#{o_id}@lingr.com", PART, chan unless u_id == @user_info["user_id"]
 							when "system:nickname_change"
 								post nick, NOTICE, chan, m["text"]
 							when "system:broadcast"
