@@ -107,8 +107,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
-					puts e
-					puts e.backtrace
+					@log.error e.message
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
 				end
 				sleep 10 * 60
 			end
@@ -122,8 +124,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
-					puts e
-					puts e.backtrace
+					@log.error e.message
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
 				end
 				sleep 90
 			end
@@ -251,14 +255,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		api("statuses/friends_timeline", {"since" => [@prev_time.httpdate]}).reverse_each do |s|
 			nick = s["user"]["screen_name"]
 			mesg = s["text"]
-			time = Time.parse(s["created_at"]) rescue Time.now
+			# time = Time.parse(s["created_at"]) rescue Time.now
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
 
 			digest = Digest::MD5.hexdigest("#{nick}::#{mesg}")
 			unless @timeline.include?(digest)
 				@timeline << digest
-				@log.debug [nick, mesg, time].inspect
+				@log.debug [nick, mesg]
 				if nick == @nick # 自分のときは topic に
 					post nick, TOPIC, main_channel, mesg
 				else
@@ -271,6 +275,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		end
+		@log.debug "@timeline.size = #{@timeline.size}"
 		@timeline  = @timeline.last(100)
 		@prev_time = Time.now
 	end
