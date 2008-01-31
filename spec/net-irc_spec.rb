@@ -135,6 +135,11 @@ describe Net::IRC::Prefix, "" do
 		prefix.extract.should == ["あああ", "~bar", "localhost"]
 	end
 
+	it "should allow lame prefix." do
+		prefix = Prefix.new("nick")
+		prefix.extract.should == ["nick", nil, nil]
+	end
+
 	it "has nick method" do
 		prefix = Prefix.new("foo!bar@localhost")
 		prefix.nick.should == "foo"
@@ -248,9 +253,9 @@ describe Net::IRC, "server and client" do
 	end
 
 	it "server should send 001,002,003 numeric replies." do
-		client_q.pop.to_s.should match(/^001 foonick :Welcome to the Internet Relay Network \S+!\S+@\S+/)
-		client_q.pop.to_s.should match(/^002 foonick :Your host is .+?, running version /)
-		client_q.pop.to_s.should match(/^003 foonick :This server was created /)
+		client_q.pop.to_s.should match(/^:net-irc 001 foonick :Welcome to the Internet Relay Network \S+!\S+@\S+/)
+		client_q.pop.to_s.should match(/^:net-irc 002 foonick :Your host is .+?, running version /)
+		client_q.pop.to_s.should match(/^:net-irc 003 foonick :This server was created /)
 	end
 
 	it "client posts PRIVMSG and server receives it." do
@@ -265,18 +270,53 @@ describe Net::IRC, "server and client" do
 
 	it "client should manage channel mode/users correctly" do
 		client = @client
+		c = @client.instance_variable_get(:@channels)
 		TestServerSession.instance.instance_eval do
 			Thread.exclusive do
 				post client.prefix,          JOIN,   "#test"
 				post nil,                    NOTICE, "#test", "sep1"
+			end
+		end
 
+		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
+		c.synchronize do
+			c.should                       be_a_kind_of(Hash)
+			c["#test"].should              be_a_kind_of(Hash)
+			c["#test"][:modes].should      be_a_kind_of(Array)
+			c["#test"][:users].should      be_a_kind_of(Array)
+			c["#test"][:users].should      == ["foonick"]
+		end
+
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
 				post "test1!test@localhost", JOIN,   "#test"
 				post "test2!test@localhost", JOIN,   "#test"
 				post nil,                    NOTICE, "#test", "sep2"
+			end
+		end
 
+		true until client_q.pop.to_s == "NOTICE #test sep2\r\n"
+		c.synchronize do
+			c["#test"][:users].should      == ["foonick", "test1", "test2"]
+		end
+
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
 				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test", "foo1 foo2 foo3 @foo4 +foo5"
 				post nil,                    NOTICE, "#test", "sep3"
+			end
+		end
 
+		true until client_q.pop.to_s == "NOTICE #test sep3\r\n"
+		c.synchronize do
+			c["#test"][:users].should      == ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"]
+			c["#test"][:modes].should      include(["s", nil])
+			c["#test"][:modes].should      include(["o", "foo4"])
+			c["#test"][:modes].should      include(["v", "foo5"])
+		end
+
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
 				post nil,                    RPL_NAMREPLY, client.prefix.nick, "@", "#test1", "foo1 foo2 foo3 @foo4 +foo5"
 				post "foo4!foo@localhost",   QUIT,   "message"
 				post "foo5!foo@localhost",   PART,   "#test1", "message"
@@ -286,30 +326,27 @@ describe Net::IRC, "server and client" do
 			end
 		end
 
-		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
-		c = @client.instance_variable_get(:@channels)
-		c.should                       be_a_kind_of(Hash)
-		c["#test"].should              be_a_kind_of(Hash)
-		c["#test"][:modes].should      be_a_kind_of(Array)
-		c["#test"][:users].should      be_a_kind_of(Array)
-		c["#test"][:users].should      == ["foonick"]
-
-		true until client_q.pop.to_s == "NOTICE #test sep2\r\n"
-		c["#test"][:users].should      == ["foonick", "test1", "test2"]
-
-		true until client_q.pop.to_s == "NOTICE #test sep3\r\n"
-		c["#test"][:users].should      == ["foonick", "test1", "test2", "foo1", "foo2", "foo3", "foo4", "foo5"]
-		c["#test"][:modes].should      include(["s", nil])
-		c["#test"][:modes].should      include(["o", "foo4"])
-		c["#test"][:modes].should      include(["v", "foo5"])
-
 		true until client_q.pop.to_s == "NOTICE #test sep4\r\n"
-		c["#test"][:users].should      == ["foonick", "test1", "test2", "foo2", "foo3", "foo5"]
-		c["#test1"][:users].should     == ["foo1", "foo2", "foo3"]
-		c["#test"][:modes].should_not  include(["o", "foo4"])
-		c["#test"][:modes].should      include(["v", "foo5"])
-		c["#test1"][:modes].should_not include(["v", "foo5"])
-		c["#test"][:modes].should      include(["o", "foo2"])
+		c.synchronize do
+			c["#test"][:users].should      == ["foonick", "test1", "test2", "foo2", "foo3", "foo5"]
+			c["#test1"][:users].should     == ["foo1", "foo2", "foo3"]
+			c["#test"][:modes].should_not  include(["o", "foo4"])
+			c["#test"][:modes].should      include(["v", "foo5"])
+			c["#test1"][:modes].should_not include(["v", "foo5"])
+			c["#test"][:modes].should      include(["o", "foo2"])
+		end
+	end
+
+	it "should allow lame RPL_WELCOME (not prefix but nick)" do
+		client = @client
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
+				post "server", RPL_WELCOME, client.prefix.nick, "Welcome to the Internet Relay Network #{client.prefix.nick}"
+				post nil,      NOTICE, "#test", "sep1"
+			end
+		end
+		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
+		client.prefix.should == "foonick"
 	end
 
 	after :all do

@@ -310,7 +310,7 @@ module Net::IRC
 
 		# Extract prefix string to [nick, user, host] Array.
 		def extract
-			_, *ret = *self.match(/^([^\s!]+)!([^\s@]+)@(\S+)$/)
+			_, *ret = *self.match(/^([^\s!]+)(?:!([^\s@]+)@(\S+))?$/)
 			ret
 		end
 	end
@@ -497,7 +497,7 @@ class Net::IRC::Client
 	# Default RPL_WELCOME callback.
 	# This sets @prefix from the message.
 	def on_rpl_welcome(m)
-		@prefix = Prefix.new(m[1][/\S+!\S+@\S+/])
+		@prefix = Prefix.new(m[1][/\S+$/])
 	end
 
 	# Default PING callback. Response PONG.
