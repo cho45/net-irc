@@ -93,6 +93,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_user(m)
 		super
 		post @prefix, JOIN, main_channel
+		post server_name, MODE, main_channel, "+o", @prefix.nick
+
 		@real, @opts = @real.split(/\s+/)
 		@opts ||= []
 		@log.info "Client Options: #{@opts.inspect}"
@@ -202,6 +204,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@channels << channel
 			@channels.uniq!
 			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+			post server_name, MODE, channel, "+o", @nick
 			save_config
 		end
 	end
@@ -221,6 +224,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		if (@friends || []).find {|i| i["screen_name"] == nick }
 			((@groups[channel] ||= []) << nick).uniq!
 			post "#{nick}!#{nick}@#{api_base.host}", JOIN, channel
+			post server_name, MODE, channel, "+o", nick
 			save_config
 		else
 			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
@@ -290,7 +294,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		friends = api("statuses/friends")
 		if first && !@opts.include?("athack")
 			@friends = friends
-			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| i["screen_name"] }.join(" ")
+			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
 			post nil, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
