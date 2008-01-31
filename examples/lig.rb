@@ -205,7 +205,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def make_ids(o)
 		u_id = o["user_id"] || "anon"
 		o_id = o["occupant_id"] || o["id"]
-		nick = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "") + "|#{o["user_id"] || o_id}"
+		nick = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "") + "|#{o["user_id"] || "_"+o_id}"
 		pref = Prefix.new("#{nick}!#{u_id}@lingr.com")
 		[u_id, o_id, pref]
 	end
