@@ -502,7 +502,7 @@ class Net::IRC::Client
 
 	# Default PING callback. Response PONG.
 	def on_ping(m)
-		post PONG, @prefix.nick
+		post PONG, @prefix ? @prefix.nick : ""
 	end
 
 	# For managing channel
