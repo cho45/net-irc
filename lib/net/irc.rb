@@ -846,6 +846,8 @@ class Net::IRC::Server
 			})
 			@log.debug "SEND: #{m.to_s.chomp}"
 			@socket << m
+		rescue IOError
+			finish
 		end
 
 		# Call when client connected.

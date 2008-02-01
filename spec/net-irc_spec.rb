@@ -349,6 +349,34 @@ describe Net::IRC, "server and client" do
 		client.prefix.should == "foonick"
 	end
 
+	it "should destroy closed session" do
+		oldclient = @client
+		@client.finish
+
+		Thread.start do
+			@client = TestClient.new("localhost", @port, {
+				:nick   => "foonick",
+				:user   => "foouser",
+				:real   => "foo real name",
+				:pass   => "foopass",
+				:logger => Logger.new(nil),
+			})
+			@client.start
+		end
+
+		true while @client == oldclient
+
+		client = @client
+		c = @client.instance_variable_get(:@channels)
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
+				post nil,                    NOTICE, "#test", "sep1"
+			end
+		end
+
+		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
+	end
+
 	after :all do
 		@server.finish
 		@client.finish
