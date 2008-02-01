@@ -120,10 +120,6 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				if res[:succeeded]
 					res[:response]["password"] = password
 
-					u_id, o_id, prefix = *make_ids(@user_info)
-					post prefix, JOIN, channel
-					post server_name, MODE, channel, "+o", prefix.nick
-
 					create_observer(channel, res[:response])
 				else
 					log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
@@ -156,21 +152,23 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def create_observer(channel, response)
 		Thread.start(channel, response) do |chan, res|
-			begin
-				myu_id, myo_id, myprefix = *make_ids(@user_info)
-				post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
-				@channels[chan.downcase] = {
-					:ticket   => res["ticket"],
-					:counter  => res["counter"],
-					:o_id     => res["occupant_id"],
-					:chan_id  => res["room"]["id"],
-					:password => res["password"],
-					:users    => { myprefix.nick => myprefix },
-					:hcounter => 0,
-					:observer => Thread.current,
-				}
-				first = true
-				while true
+			myu_id, myo_id, myprefix = *make_ids(@user_info)
+			post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
+			@channels[chan.downcase] = {
+				:ticket   => res["ticket"],
+				:counter  => res["counter"],
+				:o_id     => res["occupant_id"],
+				:chan_id  => res["room"]["id"],
+				:password => res["password"],
+				:users    => { myprefix.nick => myprefix },
+				:hcounter => 0,
+				:observer => Thread.current,
+			}
+			post myprefix, JOIN, channel
+			post server_name, MODE, channel, "+o", myprefix.nick
+			first = true
+			while true
+				begin
 					info = @channels[chan.downcase]
 					res = @lingr.observe_room info[:ticket], info[:counter]
 					@log.debug "observe_room returned"
@@ -231,11 +229,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
 					end
 					first = false
-				end
-			rescue Exception => e
-				@log.error e.message
-				e.backtrace.each do |l|
-					@log.error "\t#{l}"
+				rescue Exception => e
+					@log.error e.message
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
 				end
 			end
 		end
