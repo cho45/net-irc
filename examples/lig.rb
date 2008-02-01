@@ -56,7 +56,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_privmsg(m)
 		target, message = *m.params
-		@lingr.say(@channels[target.downcase][:ticket], message)
+		res = @lingr.say(@channels[target.downcase][:ticket], message)
+		unless res[:succeeded]
+			log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
+			log "Coundn't say to #{channel}."
+		end
 	end
 
 	def on_whois(m)
