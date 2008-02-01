@@ -126,7 +126,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					log "Coundn't join to #{channel}."
 				end
 			rescue Exception => e
-				@log.error e.message
+				@log.error e.inspect
 				e.backtrace.each do |l|
 					@log.error "\t#{l}"
 				end
@@ -230,7 +230,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					end
 					first = false
 				rescue Exception => e
-					@log.error e.message
+					@log.error e.inspect
 					e.backtrace.each do |l|
 						@log.error "\t#{l}"
 					end

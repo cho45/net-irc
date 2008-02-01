@@ -107,7 +107,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
-					@log.error e.message
+					@log.error e.inspect
 					e.backtrace.each do |l|
 						@log.error "\t#{l}"
 					end
@@ -124,7 +124,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
-					@log.error e.message
+					@log.error e.inspect
 					e.backtrace.each do |l|
 						@log.error "\t#{l}"
 					end
