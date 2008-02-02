@@ -183,20 +183,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
+				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, channel
+			post nil, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
 				f = @friends.find {|i| i["screen_name"] == name }
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, channel, user, host, serv, nick, "H", "0 #{real}"
+				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, channel
+			post nil, RPL_ENDOFWHO, @nick, channel
 		else
-			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			post nil, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
 		end
 	end
 

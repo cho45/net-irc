@@ -80,7 +80,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			post nil, RPL_WHOISCHANNELS, me.nick, pref.nick, channels.map {|i| "@#{i}" }.join(" ")
 			post nil, RPL_ENDOFWHOIS,    me.nick, pref.nick, "End of WHOIS list"
 		else
-			post nil, ERR_NOSUCHNICK, prefix.nick, nick, "No such nick/channel"
+			post nil, ERR_NOSUCHNICK, me.nick, nick, "No such nick/channel"
 		end
 	end
 
@@ -89,12 +89,13 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		return unless channel
 
 		info = @channels[channel.downcase]
+		u_id, o_id, me = *make_ids(@user_info)
 		res  = @lingr.get_room_info(info[:chan_id], nil, info[:password])
 		res["occupants"].each do |o|
 			u_id, o_id, prefix = *make_ids(o)
-			post nil, RPL_WHOREPLY, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
+			post nil, RPL_WHOREPLY, me.nick, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H*@", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
 		end
-		post nil, RPL_ENDOFWHO, channel
+		post nil, RPL_ENDOFWHO, me.nick, channel
 	rescue Lingr::Client::APIError => e
 		log "Maybe gateway don't know password for channel #{channel}. Please part and join."
 	end
