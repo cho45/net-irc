@@ -76,6 +76,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			# post nil, RPL_WHOISIDLE,     me.nick, pref.nick, idle, "seconds idle"
 			post nil, RPL_WHOISCHANNELS, me.nick, pref.nick, channels.map {|i| "@#{i}" }.join(" ")
 			post nil, RPL_ENDOFWHOIS,    me.nick, pref.nick, "End of WHOIS list"
+		else
+			post nil, ERR_NOSUCHNICK, prefix.nick, nick, "No such nick/channel"
 		end
 	end
 
@@ -119,15 +121,17 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_part(m)
 		channel = m.params[0]
-		info = @channels[channel.downcase]
+		info    = @channels[channel.downcase]
+		u_id, o_id, prefix = *make_ids(@user_info)
 
 		if info
 			info[:observer].kill
 			@lingr.exit_room(info[:ticket])
 			@channels.delete(channel.downcase)
 
-			u_id, o_id, prefix = *make_ids(@user_info)
 			post prefix, PART, channel, "Parted"
+		else
+			post nil, ERR_NOSUCHCHANNEL, prefix.nick, channel, "No such channel"
 		end
 	end
 
