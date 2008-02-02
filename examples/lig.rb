@@ -187,6 +187,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 							m["nickname"] = m["new_nickname"]
 							_, _, newprefix = *make_ids(m)
 							post prefix, NICK, newprefix.nick
+							info[:users].delete prefix.nick
+							info[:users][newprefix.nick] = newprefix
 						when "system:broadcast"
 							post "system.broadcast",  NOTICE, chan, m["text"]
 						end
@@ -198,12 +200,13 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						res["occupants"].each do |o|
 							# new_roster[o["id"]] = o["nickname"]
 							if o["nickname"]
-								nick = o["nickname"]
 								u_id, o_id, prefix = make_ids(o)
 
-								post prefix, JOIN, chan
-								post server_name, MODE, chan, "+o", prefix.nick
-								info[:users][prefix.nick] = prefix
+								unless info[:users].key?(prefix.nick)
+									post prefix, JOIN, chan
+									post server_name, MODE, chan, "+o", prefix.nick
+									info[:users][prefix.nick] = prefix
+								end
 							end
 						end
 					end
