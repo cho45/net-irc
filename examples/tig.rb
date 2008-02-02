@@ -163,10 +163,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick = m.params[0]
 		f = (@friends || []).find {|i| i["screen_name"] == nick }
 		if f
-			post nil, RPL_WHOISUSER,   nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
-			post nil, RPL_WHOISSERVER, nick, api_base.host, api_base.to_s
-			post nil, RPL_WHOISIDLE,   nick, "0", "seconds idle"
-			post nil, RPL_ENDOFWHOIS,  nick, "End of WHOIS list"
+			post nil, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
+			post nil, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
+			post nil, RPL_WHOISIDLE,   @nick, nick, "0", "seconds idle"
+			post nil, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
 		else
 			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
