@@ -1,22 +1,11 @@
 #!/usr/bin/env ruby
 
+$LOAD_PATH << File.dirname(__FILE__)
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
 require "rubygems"
-
-# http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb
-begin
-	require "api_client"
-rescue LoadError
-	require "net/http"
-	require "uri"
-	File.open("api_client.rb", "w") do |f|
-		f.puts Net::HTTP.get(URI("http://svn.lingr.com/api/toolkits/ruby/infoteria/api_client.rb"))
-	end
-	require "api_client"
-end
-
+require "lingr"
 require "net/irc"
 require "pit"
 
@@ -45,10 +34,10 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@log.info "Client Option: #{@copts.join(", ")}"
 		@log.info "Client initialization is completed."
 
-		@lingr = Lingr::ApiClient.new(@opts.api_key)
+		@lingr = Lingr::Client.new(@opts.api_key)
 		@lingr.create_session('human')
 		@lingr.login(@real, @pass)
-		@user_info = @lingr.get_user_info[:response]
+		@user_info = @lingr.get_user_info
 
 		u_id, o_id, prefix = *make_ids(@user_info)
 		post @prefix, NICK, prefix.nick
@@ -56,11 +45,10 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_privmsg(m)
 		target, message = *m.params
-		res = @lingr.say(@channels[target.downcase][:ticket], message)
-		unless res[:succeeded]
-			log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
-			log "Coundn't say to #{channel}."
-		end
+		@lingr.say(@channels[target.downcase][:ticket], message)
+	rescue Lingr::Client::APIError => e
+		log "Error: #{e.code}: #{e.message}"
+		log "Coundn't say to #{channel}."
 	end
 
 	def on_whois(m)
@@ -95,18 +83,15 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return unless channel
 
-		info    = @channels[channel.downcase]
-		res = @lingr.get_room_info(info[:chan_id], nil, info[:password])
-		if res[:succeeded]
-			res = res[:response]
-			res["occupants"].each do |o|
-				u_id, o_id, prefix = *make_ids(o)
-				post nil, RPL_WHOREPLY, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
-			end
-			post nil, RPL_ENDOFWHO, channel
-		else
-			log "Maybe gateway don't know password for channel #{channel}. Please part and join."
+		info = @channels[channel.downcase]
+		res  = @lingr.get_room_info(info[:chan_id], nil, info[:password])
+		res["occupants"].each do |o|
+			u_id, o_id, prefix = *make_ids(o)
+			post nil, RPL_WHOREPLY, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
 		end
+		post nil, RPL_ENDOFWHO, channel
+	rescue Lingr::Client::APIError => e
+		log "Maybe gateway don't know password for channel #{channel}. Please part and join."
 	end
 
 	def on_join(m)
@@ -117,14 +102,12 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			begin
 				@log.debug "Enter room -> #{channel}"
 				res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
-				if res[:succeeded]
-					res[:response]["password"] = password
+				res["password"] = password
 
-					create_observer(channel, res[:response])
-				else
-					log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
-					log "Coundn't join to #{channel}."
-				end
+				create_observer(channel, res)
+			rescue Lingr::Client::APIError => e
+				log "Error: #{e.code}: #{e.message}"
+				log "Coundn't join to #{channel}."
 			rescue Exception => e
 				@log.error e.inspect
 				e.backtrace.each do |l|
@@ -171,64 +154,70 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				begin
 					info = @channels[chan.downcase]
 					res = @lingr.observe_room info[:ticket], info[:counter]
-					@log.debug "observe_room returned"
-					if res[:succeeded]
-						info[:counter] = res[:response]["counter"] if res[:response]["counter"]
-						(res[:response]["messages"] || []).each do |m|
-							next if m["id"].to_i <= info[:hcounter]
+					@log.debug "observe_room<#{chan}> returned"
 
-							u_id, o_id, prefix = *make_ids(m)
+					info[:counter] = res["counter"] if res["counter"]
+					(res["messages"] || []).each do |m|
+						next if m["id"].to_i <= info[:hcounter]
 
-							case m["type"]
-							when "user"
-								if first
-									post prefix, NOTICE, chan, m["text"]
-								else
-									post prefix, PRIVMSG, chan, m["text"] unless info[:o_id] == o_id
-								end
-							when "private"
-								# TODO
-								post prefix, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
-							when "system:enter"
-								unless prefix.nick == myprefix.nick
-									post prefix, JOIN, chan
-									post server_name, MODE, chan, "+o", prefix.nick
-									info[:users][prefix.nick] = prefix
-								end
-							when "system:leave"
-								unless prefix.nick == myprefix.nick
-									post prefix, PART, chan
-									info[:users].delete(prefix.nick)
-								end
-							when "system:nickname_change"
-								m["nickname"] = m["new_nickname"]
-								_, _, newprefix = *make_ids(m)
-								post prefix, NICK, newprefix.nick
-							when "system:broadcast"
-								post "system.broadcast",  NOTICE, chan, m["text"]
+						u_id, o_id, prefix = *make_ids(m)
+
+						case m["type"]
+						when "user"
+							if first
+								post prefix, NOTICE, chan, m["text"]
+							else
+								post prefix, PRIVMSG, chan, m["text"] unless info[:o_id] == o_id
 							end
-
-							info[:hcounter] = m["id"].to_i if m["id"]
+						when "private"
+							# TODO
+							post prefix, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
+						when "system:enter"
+							unless prefix.nick == myprefix.nick
+								post prefix, JOIN, chan
+								post server_name, MODE, chan, "+o", prefix.nick
+								info[:users][prefix.nick] = prefix
+							end
+						when "system:leave"
+							unless prefix.nick == myprefix.nick
+								post prefix, PART, chan
+								info[:users].delete(prefix.nick)
+							end
+						when "system:nickname_change"
+							m["nickname"] = m["new_nickname"]
+							_, _, newprefix = *make_ids(m)
+							post prefix, NICK, newprefix.nick
+						when "system:broadcast"
+							post "system.broadcast",  NOTICE, chan, m["text"]
 						end
 
-						if res["occupants"]
-							res["occupants"].each do |o|
-								# new_roster[o["id"]] = o["nickname"]
-								if o["nickname"]
-									nick = o["nickname"]
-									u_id, o_id, prefix = make_ids(o)
+						info[:hcounter] = m["id"].to_i if m["id"]
+					end
 
-									post prefix, JOIN, chan
-									post server_name, MODE, chan, "+o", prefix.nick
-									info[:users][prefix.nick] = prefix
-								end
+					if res["occupants"]
+						res["occupants"].each do |o|
+							# new_roster[o["id"]] = o["nickname"]
+							if o["nickname"]
+								nick = o["nickname"]
+								u_id, o_id, prefix = make_ids(o)
+
+								post prefix, JOIN, chan
+								post server_name, MODE, chan, "+o", prefix.nick
+								info[:users][prefix.nick] = prefix
 							end
 						end
-					else
-						@log.debug "observe failed : #{res[:response].inspect}"
-						log "Error: #{(res && res[:response]["error"]) ? res[:response]["error"]["message"] : "socket error"}"
 					end
 					first = false
+				rescue Lingr::Client::APIError => e
+					case e.code
+					when 102 # invalid session
+						finish
+					when 109 # invalid ticket
+						on_part(Message.new("", PART, [chan, res["error"]["message"]]))
+					else
+						@log.debug "observe failed : #{res.inspect}"
+						log "Error: #{e.code}: #{e.message}"
+					end
 				rescue Exception => e
 					@log.error e.inspect
 					e.backtrace.each do |l|
