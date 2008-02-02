@@ -29,6 +29,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@real, @copts = @real.split(/\s+/)
 		@copts ||= []
 
+		# Tiarra sends prev nick when reconnects.
+		@nick.sub!(/\|.+$/, "")
+
 		log "Hello #{@nick}, this is Lingr IRC Gateway."
 		log "Client Option: #{@copts.join(", ")}"
 		@log.info "Client Option: #{@copts.join(", ")}"
