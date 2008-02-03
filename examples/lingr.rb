@@ -12,6 +12,9 @@
 #
 # Original written by Lingr.
 # Modified by cho45 <cho45@lowreal.net>
+#  * Use json gem instead of gsub/eval.
+#  * Raise APIError when api fails.
+#  * Rename class name to Lingr::Client.
 
 $KCODE = 'u' # used by json
 require "rubygems"

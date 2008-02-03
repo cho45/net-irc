@@ -1,4 +1,60 @@
 #!/usr/bin/env ruby
+=begin
+
+# lig.rb
+
+Lingr IRC Gateway - IRC Gateway to Lingr ( http://www.lingr.com/ )
+
+## Client opts
+
+Options specified by after irc realname.
+
+Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+
+	lingr {
+		host: localhost
+		port: 16669
+		name: username@example.com (Email on Lingr)
+		password: password on Lingr
+		in-encoding: utf8
+		out-encoding: utf8
+	}
+
+Set your email as IRC 'real name' field, and password as server password.
+This does not allow anonymous connection to Lingr.
+You must create a account on Lingr and get API key (ask it first time).
+
+## Client
+
+This gateway sends multibyte nicknames at Lingr rooms as-is.
+So you should use a client which treats it correctly.
+
+Recommended:
+
+ * LimeChat for OSX ( http://limechat.sourceforge.net/ )
+ * irssi ( http://irssi.org/ )
+ * (gateway) Tiarra ( http://coderepos.org/share/wiki/Tiarra )
+
+## Nickname/Mask
+
+nick -> nickname in a room.
+o_id -> occupant_id (unique id in a room)
+u_id -> user_id (unique user id in Lingr)
+
+ * Anonymous User: <nick>|<o_id>!anon@lingr.com
+ * Logged-in User: <nick>|<o_id>!<u_id>@lingr.com
+ * Your:           <nick>|<u_id>!<u_id>@lingr.com
+
+So you can see some nicknames in same user, but it is needed for
+nickname management on client.
+
+(Lingr allows different nicknames between rooms in a same user, but IRC not)
+
+## Licence
+
+Ruby's by cho45
+
+=end
 
 $LOAD_PATH << File.dirname(__FILE__)
 $LOAD_PATH << "lib"
