@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby -Ku
+#!/usr/bin/env ruby
 =begin
 
 # tig.rb
@@ -6,8 +6,15 @@
 Ruby version of TwitterIrcGateway
 ( http://www.misuzilla.org/dist/net/twitterircgateway/ )
 
+## Launch
 
-## Client opts
+	$ ruby tig.rb # daemonized
+
+If you want to help:
+
+	$ ruby tig.rb --help
+
+## Configuration
 
 Options specified by after irc realname.
 

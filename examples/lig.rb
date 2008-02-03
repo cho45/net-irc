@@ -5,9 +5,24 @@
 
 Lingr IRC Gateway - IRC Gateway to Lingr ( http://www.lingr.com/ )
 
-## Client opts
+## Launch
 
-Options specified by after irc realname.
+	$ ruby lig.rb # daemonized
+
+If you want to help:
+
+	$ ruby lig.rb --help
+	Usage: examples/lig.rb [opts]
+	
+	
+	Options:
+	    -p, --port [PORT=16669]          port number to listen
+	    -h, --host [HOST=localhost]      host name or IP address to listen
+	    -l, --log LOG                    log file
+	    -a, --api_key API_KEY            Your api key on Lingr
+	        --debug                      Enable debug mode
+
+## Configuration
 
 Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 

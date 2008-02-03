@@ -5,8 +5,15 @@
 
 Wassr IRC Gateway
 
+## Launch
 
-## Client opts
+	$ ruby wig.rb # daemonized
+
+If you want to help:
+
+	$ ruby wig.rb --help
+
+## Configuration
 
 Options specified by after irc realname.
 
