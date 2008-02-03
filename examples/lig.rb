@@ -183,7 +183,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						when "system:enter"
 							unless prefix.nick == myprefix.nick
 								post prefix, JOIN, chan
-								post server_name, MODE, chan, "+o", prefix.nick
+								if m["client_type"] == "human"
+									post server_name, MODE, chan, "+o", prefix.nick
+								end
 								info[:users][prefix.nick] = prefix
 							end
 						when "system:leave"
@@ -206,13 +208,22 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 					if res["occupants"]
 						res["occupants"].each do |o|
-							# new_roster[o["id"]] = o["nickname"]
 							if o["nickname"]
 								u_id, o_id, prefix = make_ids(o)
+								o["user_id"] = nil
+								_, _, anonprefix   = make_ids(o)
 
 								unless info[:users].key?(prefix.nick)
-									post prefix, JOIN, chan
-									post server_name, MODE, chan, "+o", prefix.nick
+									if info[:users].key?(anonprefix.nick)
+										# when non-auth user be promoted to auth user.
+										post anonprefix, NICK, prefix.nick
+										info[:users].delete anonprefix.nick
+									else
+										post prefix, JOIN, chan
+										if o["client_type"] == "human"
+											post server_name, MODE, chan, "+o", prefix.nick
+										end
+									end
 									info[:users][prefix.nick] = prefix
 								end
 							end
