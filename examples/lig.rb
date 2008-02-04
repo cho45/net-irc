@@ -113,7 +113,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@lingr.login(@real, @pass)
 		@user_info = @lingr.get_user_info
 
-		u_id, o_id, prefix = *make_ids(@user_info)
+		prefix = make_ids(@user_info)
 		@user_info["prefix"] = prefix
 		post @prefix, NICK, prefix.nick
 	end
@@ -144,7 +144,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			real_name   = prefix
 			server_info = "Lingr"
 			channels    = [info["client_type"] == "human" ? "@#{chan}" : chan]
-			u_id, o_id, me = *make_ids(@user_info)
+			me          = make_ids(@user_info)
 
 			post nil, RPL_WHOISUSER,     me.nick, prefix.nick, prefix.user, prefix.host, "*", real_name
 			post nil, RPL_WHOISSERVER,   me.nick, prefix.nick, prefix.nick, prefix.host, server_info
@@ -162,11 +162,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		return unless channel
 
 		info = @channels[channel.downcase]
-		u_id, o_id, me = *make_ids(@user_info)
+		me   = make_ids(@user_info)
 		res  = @lingr.get_room_info(info[:chan_id], nil, info[:password])
 		res["occupants"].each do |o|
 			next unless o["nickname"]
-			u_id, o_id, prefix = *make_ids(o)
+			u_id, o_id, prefix = *make_ids(o, true)
 			op = (o["client_type"] == "human") ? "@" : ""
 			post nil, RPL_WHOREPLY, me.nick, channel, o_id, "lingr.com", "lingr.com", prefix.nick, "H*#{op}", "0 #{o["description"].to_s.gsub(/\s+/, " ")}"
 		end
@@ -201,7 +201,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def on_part(m)
 		channel = m.params[0]
 		info    = @channels[channel.downcase]
-		u_id, o_id, prefix = *make_ids(@user_info)
+		prefix  = make_ids(@user_info)
 
 		if info
 			info[:observer].kill
@@ -227,7 +227,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				:chan_id  => res["room"]["id"],
 				:password => res["password"],
 				:users    => res["occupants"].reject {|i| i["nickname"].nil? }.inject({}) {|r,i|
-					_, _, i["prefix"] = make_ids(i)
+					i["prefix"] = make_ids(i)
 					r.update(i["prefix"].nick => i)
 				},
 				:hcounter => 0,
@@ -253,7 +253,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					(res["messages"] || []).each do |m|
 						next if m["id"].to_i <= info[:hcounter]
 
-						u_id, o_id, prefix = *make_ids(m)
+						u_id, o_id, prefix = *make_ids(m, true)
 
 						case m["type"]
 						when "user"
@@ -281,7 +281,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 #							end
 #						when "system:nickname_change"
 #							m["nickname"] = m["new_nickname"]
-#							_, _, newprefix = *make_ids(m)
+#							newprefix = make_ids(m)
 #							post prefix, NICK, newprefix.nick
 #							info[:users].delete prefix.nick
 #							info[:users][newprefix.nick] = m.merge("prefix" => newprefix)
@@ -295,7 +295,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					if res["occupants"]
 						enter = [], leave = []
 						newusers = res["occupants"].reject {|i| i["nickname"].nil? }.inject({}) {|r,i|
-							_, _, i["prefix"] = make_ids(i)
+							i["prefix"] = make_ids(i)
 							r.update(i["prefix"].nick => i)
 						}
 
@@ -306,7 +306,6 @@ class LingrIrcGateway < Net::IRC::Server::Session
 								# when nickname was changed and when un-authed user promoted to authed user.
 								new["prefix"] != old["prefix"] && new["id"] == old["id"]
 							}
-							p old
 							if old
 								old = old[1]
 								post old["prefix"], NICK, new["prefix"].nick
@@ -332,7 +331,6 @@ class LingrIrcGateway < Net::IRC::Server::Session
 								post server_name, MODE, chan, "+o", prefix.nick
 							end
 						end
-
 
 						info[:users] = newusers
 					end
@@ -363,14 +361,14 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def log(str)
 		str.gsub!(/\s/, " ")
 		begin
-			myu_id, myo_id, myprefix = *make_ids(@user_info)
+			myprefix = make_ids(@user_info)
 			post nil, NOTICE, myprefix.nick, str
 		rescue
 			post nil, NOTICE, @nick, str
 		end
 	end
 
-	def make_ids(o)
+	def make_ids(o, ext=false)
 		u_id  = o["user_id"] || "anon"
 		o_id  = o["occupant_id"] || o["id"]
 		nick  = (o["default_nickname"] || o["nickname"]).gsub(/\s+/, "")
@@ -380,7 +378,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			nick << "|#{o["user_id"] ? o_id : "_"+o_id}"
 		end
 		pref = Prefix.new("#{nick}!#{u_id}@lingr.com")
-		[u_id, o_id, pref]
+		ext ? [u_id, o_id, pref] : pref
 	end
 end
 
