@@ -141,13 +141,13 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 		if chan
 			prefix      = info["prefix"]
-			real_name   = prefix
-			server_info = "Lingr"
+			real_name   = info["description"].to_s
+			server_info = "Lingr: type:#{info["client_type"]} source:#{info["source"]}"
 			channels    = [info["client_type"] == "human" ? "@#{chan}" : chan]
 			me          = make_ids(@user_info)
 
 			post nil, RPL_WHOISUSER,     me.nick, prefix.nick, prefix.user, prefix.host, "*", real_name
-			post nil, RPL_WHOISSERVER,   me.nick, prefix.nick, prefix.nick, prefix.host, server_info
+			post nil, RPL_WHOISSERVER,   me.nick, prefix.nick, prefix.host, server_info
 			# post nil, RPL_WHOISOPERATOR, me.nick, prefix.nick, "is an IRC operator"
 			# post nil, RPL_WHOISIDLE,     me.nick, prefix.nick, idle, "seconds idle"
 			post nil, RPL_WHOISCHANNELS, me.nick, prefix.nick, channels.join(" ")
@@ -236,7 +236,6 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			post myprefix, JOIN, channel
 			post server_name, MODE, channel, "+o", myprefix.nick
 			post nil, RPL_NAMREPLY,   myprefix.nick, "=", chan, @channels[chan.downcase][:users].map{|k,v|
-				p v
 				v["client_type"] == "human" ? "@#{k}" : k
 			}.join(" ")
 			post nil, RPL_ENDOFNAMES, myprefix.nick, chan, "End of NAMES list"
@@ -265,7 +264,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						when "private"
 							# TODO
 							post prefix, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
-## process as occupants list.
+## process occupants list. should not use thease as nick management.
 #						when "system:enter"
 #							unless prefix.nick == myprefix.nick
 #								post prefix, JOIN, chan
