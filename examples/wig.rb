@@ -17,13 +17,13 @@ If you want to help:
 
 Options specified by after irc realname.
 
-Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
 	wassr {
 		host: localhost
 		port: 16670
 		name: username@example.com athack
-		password: password on wassr
+		password: password on Wassr
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -33,7 +33,7 @@ Configuration example for tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 If `athack` client options specified,
 all nick in join message is leading with @.
 
-So if you complemente nicks (ex. irssi),
+So if you complemente nicks (ex. Irssi),
 it's good for twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
@@ -77,7 +77,6 @@ if __FILE__ == $0
 	opts = {
 		:port   => 16670,
 		:host   => "localhost",
-		:debug  => false,
 		:log    => nil,
 		:debug  => false,
 	}

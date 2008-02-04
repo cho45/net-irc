@@ -34,7 +34,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 If `athack` client options specified,
 all nick in join message is leading with @.
 
-So if you complemente nicks (ex. irssi),
+So if you complemente nicks (ex. Irssi),
 it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
@@ -412,8 +412,8 @@ if __FILE__ == $0
 	opts = {
 		:port  => 16668,
 		:host  => "localhost",
-		:debug => false,
 		:log   => nil,
+		:debug => false,
 	}
 
 	OptionParser.new do |parser|

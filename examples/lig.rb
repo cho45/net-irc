@@ -47,7 +47,7 @@ So you should use a client which treats it correctly.
 Recommended:
 
  * LimeChat for OSX ( http://limechat.sourceforge.net/ )
- * irssi ( http://irssi.org/ )
+ * Irssi ( http://irssi.org/ )
  * (gateway) Tiarra ( http://coderepos.org/share/wiki/Tiarra )
 
 ## Nickname/Mask
@@ -407,7 +407,6 @@ if __FILE__ == $0
 	opts = {
 		:port   => 16669,
 		:host   => "localhost",
-		:debug  => false,
 		:log    => nil,
 		:debug  => false,
 	}
