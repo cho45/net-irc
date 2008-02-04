@@ -339,11 +339,28 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					first = false
 				rescue Lingr::Client::APIError => e
 					case e.code
-					when 102 # invalid session
+					when 100
+						@log.fatal "BUG: API returns invalid HTTP method"
+						exit 1
+					when 102
+						@log.error "BUG: API returns invalid session. Prompt the client to reconnect."
 						finish
-					when 109 # invalid ticket
+					when 104
+						@log.fatal "BUG: API returns invalid response format. JSON is unsupported?"
+						exit 1
+					when 109
+						@log.error "BUG: API returns invalid ticket. Part this channel..."
 						on_part(Message.new("", PART, [chan, res["error"]["message"]]))
+					when 114
+						@log.fatal "BUG: API returns no counter parameter."
+						exit 1
+					when 120
+						@log.error "BUG: API returns invalid encoding. But continues."
+					when 122
+						@log.fatal "BUG: API returns repeated counter"
+						exit 1
 					else
+						# may be socket error?
 						@log.debug "observe failed : #{res.inspect}"
 						log "Error: #{e.code}: #{e.message}"
 					end
