@@ -30,7 +30,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
 ### athack
 
-If `athack` client options specified,
+If `athack` client option specified,
 all nick in join message is leading with @.
 
 So if you complemente nicks (ex. Irssi),
@@ -38,6 +38,19 @@ it's good for twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
+
+
+### jabber=<jid>:<pass>
+
+If `jabber=<jid>:<pass>` option specified,
+use jabber to get friends timeline.
+
+You must setup im notifing settings in the site and
+install 'xmpp4r-simple' gem.
+
+	$ sudo gem install xmpp4r-simple
+
+Be careful for managing password.
 
 ## Licence
 

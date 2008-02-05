@@ -30,7 +30,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
 ### athack
 
-If `athack` client options specified,
+If `athack` client option specified,
 all nick in join message is leading with @.
 
 So if you complemente nicks (ex. Irssi),
