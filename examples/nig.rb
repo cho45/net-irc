@@ -21,7 +21,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
 	nowa {
 		host: localhost
-		port: 16670
+		port: 16671
 		name: username@example.com athack
 		password: password on nowa
 		in-encoding: utf8
