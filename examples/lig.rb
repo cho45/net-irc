@@ -120,7 +120,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_privmsg(m)
 		target, message = *m.params
-		@lingr.say(@channels[target.downcase][:ticket], message)
+		if @channels.key?(target.downcase)
+			@lingr.say(@channels[target.downcase][:ticket], message)
+		else
+			post nil, ERR_NOSUCHNICK, @user_info["prefix"].nick, target, "No such nick/channel"
+		end
 	rescue Lingr::Client::APIError => e
 		log "Error: #{e.code}: #{e.message}"
 		log "Coundn't say to #{channel}."
@@ -144,7 +148,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			real_name   = info["description"].to_s
 			server_info = "Lingr: type:#{info["client_type"]} source:#{info["source"]}"
 			channels    = [info["client_type"] == "human" ? "@#{chan}" : chan]
-			me          = make_ids(@user_info)
+			me          = @user_info["nick"]
 
 			post nil, RPL_WHOISUSER,     me.nick, prefix.nick, prefix.user, prefix.host, "*", real_name
 			post nil, RPL_WHOISSERVER,   me.nick, prefix.nick, prefix.host, server_info

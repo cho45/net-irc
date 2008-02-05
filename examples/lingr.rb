@@ -270,7 +270,7 @@ module Lingr
 					parse_result http.request(req)
 			end
 			rescue Exception
-				warn "exception on HTTP GET: #{$!}", 2
+				warn "exception on HTTP GET: #{$!}"
 				nil
 			end
 		end
@@ -280,7 +280,7 @@ module Lingr
 				begin
 					parse_result Net::HTTP.post_form(URI.parse(url), params)
 				rescue Exception
-					warn "exception on HTTP POST: #{$!}", 2
+					warn "exception on HTTP POST: #{$!}"
 					nil
 				end
 			else
@@ -311,7 +311,7 @@ module Lingr
 						parse_result http.post2(uri.path, query, "Content-Type" => "multipart/form-data; boundary=#{boundary}")
 					end
 				rescue Exception
-					warn "exception on multipart POST: #{$!}", 2
+					warn "exception on multipart POST: #{$!}"
 					nil
 				end
 			end
