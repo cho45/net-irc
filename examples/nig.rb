@@ -70,7 +70,7 @@ class NowaIrcGateway < TwitterIrcGateway
 		"nig.rb"
 	end
 
-	def xmpp_bot_id
+	def jabber_bot_id
 		nil
 	end
 end

@@ -363,10 +363,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				begin
 					im.received_messages.each do |msg|
 						if msg.from.strip == jabber_bot_id
-							body = msg.body.sub(/^(.+)(?:\((.+?)\))?: /, "")
-							nick, id = Regexp.last_match.captures
 							@log.debug msg.inspect
-							message(nick, main_channel, body)
+							body = msg.body.sub(/^(.+)(?:\((.+?)\))?: /, "")
+							if Regexp.last_match
+								nick, id = Regexp.last_match.captures
+								message(nick, main_channel, body)
+							end
 						end
 					end
 				rescue Exception => e
