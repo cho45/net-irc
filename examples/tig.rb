@@ -75,6 +75,7 @@ require "logger"
 require "yaml"
 require "pathname"
 require "digest/md5"
+require "cgi"
 
 Net::HTTP.version_1_2
 
@@ -382,6 +383,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
+								body = CGI.unescapeHTML(body)
 								message(id || nick, main_channel, body)
 							end
 						end
