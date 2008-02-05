@@ -13,8 +13,8 @@ If you want to help:
 
 	$ ruby lig.rb --help
 	Usage: examples/lig.rb [opts]
-	
-	
+
+
 	Options:
 	    -p, --port [PORT=16669]          port number to listen
 	    -h, --host [HOST=localhost]      host name or IP address to listen
@@ -399,10 +399,10 @@ if __FILE__ == $0
 	require "pit"
 
 	opts = {
-		:port   => 16669,
-		:host   => "localhost",
-		:log    => nil,
-		:debug  => false,
+		:port  => 16669,
+		:host  => "localhost",
+		:log   => nil,
+		:debug => false,
 	}
 
 	OptionParser.new do |parser|

@@ -1,17 +1,17 @@
 #!/usr/bin/env ruby
 =begin
 
-# wig.rb
+# nig.rb
 
-Wassr IRC Gateway
+nowa IRC Gateway
 
 ## Launch
 
-	$ ruby wig.rb # daemonized
+	$ ruby nig.rb # daemonized
 
 If you want to help:
 
-	$ ruby wig.rb --help
+	$ ruby nig.rb --help
 
 ## Configuration
 
@@ -19,11 +19,11 @@ Options specified by after irc realname.
 
 Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
-	wassr {
+	nowa {
 		host: localhost
 		port: 16670
 		name: username@example.com athack
-		password: password on Wassr
+		password: password on nowa
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -49,9 +49,9 @@ $LOAD_PATH << File.dirname(__FILE__)
 
 require "tig.rb"
 
-class WassrIrcGateway < TwitterIrcGateway
+class NowaIrcGateway < TwitterIrcGateway
 	def server_name
-		"wassrgw"
+		"nowagw"
 	end
 
 	def server_version
@@ -59,15 +59,15 @@ class WassrIrcGateway < TwitterIrcGateway
 	end
 
 	def main_channel
-		"#wassr"
+		"#nowa"
 	end
 
 	def api_base
-		@api_base ||= URI("http://api.wassr.jp/")
+		@api_base ||= URI("http://api.nowa.jp/")
 	end
 
 	def api_source
-		@api_source ||= "wig.rb"
+		@api_source ||= "nig.rb"
 	end
 end
 
@@ -75,7 +75,7 @@ if __FILE__ == $0
 	require "optparse"
 
 	opts = {
-		:port  => 16670,
+		:port  => 16671,
 		:host  => "localhost",
 		:log   => nil,
 		:debug => false,
@@ -134,7 +134,7 @@ if __FILE__ == $0
 	end
 
 	daemonize(opts[:debug]) do
-		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
+		Net::IRC::Server.new(opts[:host], opts[:port], NowaIrcGateway, opts).start
 	end
 end
 
