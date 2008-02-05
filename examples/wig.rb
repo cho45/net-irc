@@ -63,11 +63,15 @@ class WassrIrcGateway < TwitterIrcGateway
 	end
 
 	def api_base
-		@api_base ||= URI("http://api.wassr.jp/")
+		URI("http://api.wassr.jp/")
 	end
 
 	def api_source
-		@api_source ||= "wig.rb"
+		"wig.rb"
+	end
+
+	def jabber_bot_id
+		"wassr-bot@wassr.jp"
 	end
 end
 

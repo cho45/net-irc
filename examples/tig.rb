@@ -79,11 +79,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api_base
-		@api_base ||= URI("http://twitter.com/")
+		URI("http://twitter.com/")
 	end
 
 	def api_source
-		@api_source ||= "tigrb"
+		"tigrb"
+	end
+
+	def jabber_bot_id
+		"twitter@twitter.com"
 	end
 
 	class ApiFailed < StandardError; end
@@ -102,8 +106,28 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post @prefix, JOIN, main_channel
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 
-		@real, @opts = @real.split(/\s+/)
+		@real, *@opts = @real.split(/\s+/)
 		@opts ||= []
+
+		jabber = @opts.find {|i| i =~ /^jabber=(\S+?):(\S+)/ }
+		if jabber
+			jid, pass = Regexp.last_match.captures
+			jabber.replace("jabber=#{jid}:********")
+			if jabber_bot_id
+				begin
+					require "xmpp4r-simple"
+					start_jabber(jid, pass)
+				rescue LoadError
+					log "Failed to start Jabber."
+					log "Installl 'xmpp4r-simple' gem or check your id/pass."
+					finish
+				end
+			else
+				jabber = nil
+				log "This gateway does not support Jabber bot."
+			end
+		end
+
 		@log.info "Client Options: #{@opts.inspect}"
 
 		@timeline = []
@@ -123,6 +147,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 		sleep 3
+
+		return if jabber
+
 		Thread.start do
 			loop do
 				begin
@@ -324,6 +351,32 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post "#{part}!#{part}@#{api_base.host}", PART, main_channel, ""
 			end
 			@friends = friends
+		end
+	end
+
+	def start_jabber(jid, pass)
+		@log.info "Logging-in with #{jid} -> jabber_bot_id: #{jabber_bot_id}"
+		im = Jabber::Simple.new(jid, pass)
+		im.add(jabber_bot_id)
+		Thread.start do
+			loop do
+				begin
+					im.received_messages.each do |msg|
+						if msg.from.strip == jabber_bot_id
+							body = msg.body.sub(/^(.+)(?:\((.+?)\))?: /, "")
+							nick, id = Regexp.last_match.captures
+							@log.debug msg.inspect
+							message(nick, main_channel, body)
+						end
+					end
+				rescue Exception => e
+					@log.error "Error on Jabber loop: #{e.inspect}"
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep 1
+			end
 		end
 	end
 

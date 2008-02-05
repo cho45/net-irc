@@ -63,11 +63,15 @@ class NowaIrcGateway < TwitterIrcGateway
 	end
 
 	def api_base
-		@api_base ||= URI("http://api.nowa.jp/")
+		URI("http://api.nowa.jp/")
 	end
 
 	def api_source
-		@api_source ||= "nig.rb"
+		"nig.rb"
+	end
+
+	def xmpp_bot_id
+		nil
 	end
 end
 
