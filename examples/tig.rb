@@ -262,6 +262,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		api("statuses/friends_timeline", {"since" => [@prev_time.httpdate]}).reverse_each do |s|
 			nick = s["user"]["screen_name"]
 			mesg = s["text"]
+			# display photo url(wassr only)
+			if s.has_key?('photo_url')
+				mesg += " #{s['photo_url']}"
+			end
 			# time = Time.parse(s["created_at"]) rescue Time.now
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
