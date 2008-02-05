@@ -166,7 +166,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		return unless channel
 
 		info = @channels[channel.downcase]
-		me   = make_ids(@user_info)
+		me   = @user_info["prefix"]
 		res  = @lingr.get_room_info(info[:chan_id], nil, info[:password])
 		res["occupants"].each do |o|
 			next unless o["nickname"]
@@ -205,7 +205,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def on_part(m)
 		channel = m.params[0]
 		info    = @channels[channel.downcase]
-		prefix  = make_ids(@user_info)
+		prefix  = @user_info["prefix"]
 
 		if info
 			info[:observer].kill
@@ -263,31 +263,22 @@ class LingrIrcGateway < Net::IRC::Server::Session
 							if first
 								post prefix, NOTICE, chan, m["text"]
 							else
-								post prefix, PRIVMSG, chan, m["text"] unless info[:o_id] == o_id
+								# Don't send my messages.
+								unless info[:o_id] == o_id
+									post prefix, PRIVMSG, chan, m["text"]
+								end
 							end
 						when "private"
-							# TODO
-							post prefix, PRIVMSG, chan, "\x01ACTION Sent private: #{m["text"]}\x01" unless info[:o_id] == o_id
-## process occupants list. should not use thease as nick management.
+							# TODO not sent from lingr?
+							post prefix, PRIVMSG, chan, ctcp_encoding("ACTION Sent private: #{m["text"]}")
+
+						# system:{enter,leave,nickname_changed} should not be used for nick management.
 #						when "system:enter"
-#							unless prefix.nick == myprefix.nick
-#								post prefix, JOIN, chan
-#								if m["client_type"] == "human"
-#									post server_name, MODE, chan, "+o", prefix.nick
-#								end
-#								info[:users][prefix.nick] = m.merge("prefix" => prefix)
-#							end
+#							post prefix, PRIVMSG, chan, ctcp_encoding("ACTION #{m["text"]}")
 #						when "system:leave"
-#							unless prefix.nick == myprefix.nick
-#								post prefix, PART, chan
-#								info[:users].delete(prefix.nick)
-#							end
+#							post prefix, PRIVMSG, chan, ctcp_encoding("ACTION #{m["text"]}")
 #						when "system:nickname_change"
-#							m["nickname"] = m["new_nickname"]
-#							newprefix = make_ids(m)
-#							post prefix, NICK, newprefix.nick
-#							info[:users].delete prefix.nick
-#							info[:users][newprefix.nick] = m.merge("prefix" => newprefix)
+#							post prefix, PRIVMSG, chan, ctcp_encoding("ACTION #{m["text"]}")
 						when "system:broadcast"
 							post "system.broadcast",  NOTICE, chan, m["text"]
 						end
@@ -381,8 +372,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def log(str)
 		str.gsub!(/\s/, " ")
 		begin
-			myprefix = make_ids(@user_info)
-			post nil, NOTICE, myprefix.nick, str
+			post nil, NOTICE, @user_info["prefix"].nick, str
 		rescue
 			post nil, NOTICE, @nick, str
 		end
