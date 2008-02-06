@@ -364,9 +364,9 @@ describe Net::IRC, "server and client" do
 			@client.start
 		end
 
+		Thread.pass
 		true while @client == oldclient
 
-		client = @client
 		c = @client.instance_variable_get(:@channels)
 		TestServerSession.instance.instance_eval do
 			Thread.exclusive do
