@@ -145,7 +145,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.info "Client Options: #{@opts.inspect}"
 
 		@timeline = []
-		Thread.start do
+		@check_friends_thread = Thread.start do
 			loop do
 				begin
 					check_friends
@@ -164,7 +164,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return if jabber
 
-		Thread.start do
+		@check_timeline_thread = Thread.start do
 			loop do
 				begin
 					check_timeline
@@ -180,6 +180,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				sleep 90
 			end
 		end
+	end
+
+	def on_disconnected
+		@check_friends_thread.kill rescue nil
+		@check_timeline_thread.kill rescue nil
+		@im_thread.kill rescue nil
+		@im.disconnect rescue nil
 	end
 
 	def on_privmsg(m)
@@ -370,12 +377,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def start_jabber(jid, pass)
 		@log.info "Logging-in with #{jid} -> jabber_bot_id: #{jabber_bot_id}"
-		im = Jabber::Simple.new(jid, pass)
-		im.add(jabber_bot_id)
-		Thread.start do
+		@im = Jabber::Simple.new(jid, pass)
+		@im.add(jabber_bot_id)
+		@im_thread = Thread.start do
 			loop do
 				begin
-					im.received_messages.each do |msg|
+					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
 							# twitter -> 'id: msg'

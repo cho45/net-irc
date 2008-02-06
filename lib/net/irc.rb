@@ -769,13 +769,11 @@ class Net::IRC::Server
 					@log.debug "RECEIVE: #{l.chomp}"
 					m = Message.parse(l)
 					next if on_message(m) === true
-					if m.command == QUIT
-						on_quit if respond_to?(:on_quit)
-						break
-					else
-						name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
-						send(name, m) if respond_to?(name)
-					end
+
+					name = "on_#{(COMMANDS[m.command.upcase] || m.command).downcase}"
+					send(name, m) if respond_to?(name)
+
+					break if m.command == QUIT
 				rescue Message::InvalidMessage
 					@log.error "MessageParse: " + l.inspect
 				end
@@ -805,7 +803,6 @@ class Net::IRC::Server
 		def on_nick(m)
 			@nick = m.params[0]
 		end
-
 
 		# Default USER callback.
 		# Set @user, @real, @host and call inital_message.

@@ -218,6 +218,13 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def on_disconnected
+		@channels.each do |k, info|
+			info[:observer].kill
+		end
+		@lingr.destroy_session
+	end
+
 	private
 
 	def create_observer(channel, response)
@@ -249,7 +256,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			while true
 				begin
 					res = @lingr.observe_room info[:ticket], info[:counter]
-					@log.debug "observe_room<#{chan}> returned"
+					@log.debug "observe_room<#{chan}> returned <- #{myprefix}"
 
 					info[:counter] = res["counter"] if res["counter"]
 
