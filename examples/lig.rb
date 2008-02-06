@@ -148,7 +148,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			real_name   = info["description"].to_s
 			server_info = "Lingr: type:#{info["client_type"]} source:#{info["source"]}"
 			channels    = [info["client_type"] == "human" ? "@#{chan}" : chan]
-			me          = @user_info["nick"]
+			me          = @user_info["prefix"]
 
 			post nil, RPL_WHOISUSER,     me.nick, prefix.nick, prefix.user, prefix.host, "*", real_name
 			post nil, RPL_WHOISSERVER,   me.nick, prefix.nick, prefix.host, server_info
