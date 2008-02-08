@@ -130,6 +130,10 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		log "Coundn't say to #{channel}."
 	end
 
+	def on_notice(m)
+		on_privmsg(m)
+	end
+
 	def on_whois(m)
 		nick = m.params[0]
 		chan = nil
