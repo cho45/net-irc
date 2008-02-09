@@ -269,7 +269,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			while true
 				begin
 					res = @lingr.observe_room info[:ticket], info[:counter]
-					@log.debug "observe_room<#{chan}> returned <- #{myprefix}"
+					@log.debug "observe_room<#{info[:counter]}><#{chan}> returned <- #{myprefix}"
 
 					info[:counter] = res["counter"] if res["counter"]
 
@@ -369,10 +369,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						@log.fatal "BUG: API returns no counter parameter."
 						exit 1
 					when 120
-						@log.error "BUG: API returns invalid encoding. But continues."
+						@log.error "Error: API returns invalid encoding. But continues."
 					when 122
-						@log.fatal "BUG: API returns repeated counter"
-						exit 1
+						@log.error "Error: API returns repeated counter. But continues. (JSON parsing error?)"
+						info[:counter] += 1
+						log "Error: repeated counter. Some message may be ignored..."
 					else
 						# may be socket error?
 						@log.debug "observe failed : #{res.inspect}"
