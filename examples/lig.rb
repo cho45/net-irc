@@ -69,6 +69,10 @@ nickname management on client.
 
 Ruby's by cho45
 
+## 備考
+
+このクライアントで 1000speakers への応募はできません。lingr.com から行ってください。
+
 =end
 
 $LOAD_PATH << File.dirname(__FILE__)
@@ -162,6 +166,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			post nil, RPL_ENDOFWHOIS,    me.nick, prefix.nick, "End of WHOIS list"
 		else
 			post nil, ERR_NOSUCHNICK, me.nick, nick, "No such nick/channel"
+		end
+	rescue Exception => e
+		@log.error e.inspect
+		e.backtrace.each do |l|
+			@log.error "\t#{l}"
 		end
 	end
 
