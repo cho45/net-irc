@@ -317,17 +317,22 @@ module Lingr
 			end
 		end
 
-			def parse_result(result)
-				return nil if !result || result.code != '200' || (!result['Content-Type'] || result['Content-Type'].index('text/javascript') != 0)
-				result.body
-			end
-
-			def success?(response)
-				return false if !response
-				response["status"] and response["status"] == 'ok'
-			end
-
-
-			@@PATH_BASE = 'api/'
+		def parse_result(result)
+			return nil if !result || result.code != '200' || (!result['Content-Type'] || result['Content-Type'].index('text/javascript') != 0)
+#			puts
+#			puts
+#			puts result.body
+#			puts
+#			puts
+			result.body
 		end
+
+		def success?(response)
+			return false if !response
+			response["status"] and response["status"] == 'ok'
+		end
+
+
+		@@PATH_BASE = 'api/'
+	end
 end

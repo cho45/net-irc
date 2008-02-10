@@ -246,7 +246,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
 			@channels[chan.downcase] = {
 				:ticket   => res["ticket"],
-				:counter  => res["counter"],
+				:counter  => res["room"]["counter"],
 				:o_id     => res["occupant_id"],
 				:chan_id  => res["room"]["id"],
 				:password => res["password"],
@@ -264,12 +264,11 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			}.join(" ")
 			post nil, RPL_ENDOFNAMES, myprefix.nick, chan, "End of NAMES list"
 
-			first = true
 			info = @channels[chan.downcase]
 			while true
 				begin
+					@log.debug "observe_room<#{info[:counter]}><#{chan}> start <- #{myprefix}"
 					res = @lingr.observe_room info[:ticket], info[:counter]
-					@log.debug "observe_room<#{info[:counter]}><#{chan}> returned <- #{myprefix}"
 
 					info[:counter] = res["counter"] if res["counter"]
 
@@ -280,13 +279,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 						case m["type"]
 						when "user"
-							if first
-								post prefix, NOTICE, chan, m["text"]
-							else
-								# Don't send my messages.
-								unless info[:o_id] == o_id
-									post prefix, PRIVMSG, chan, m["text"]
-								end
+							# Don't send my messages.
+							unless info[:o_id] == o_id
+								post prefix, PRIVMSG, chan, m["text"]
 							end
 						when "private"
 							# TODO not sent from lingr?
@@ -350,7 +345,6 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					end
 
 
-					first = false
 				rescue Lingr::Client::APIError => e
 					case e.code
 					when 100
@@ -371,14 +365,18 @@ class LingrIrcGateway < Net::IRC::Server::Session
 					when 120
 						@log.error "Error: API returns invalid encoding. But continues."
 					when 122
-						@log.error "Error: API returns repeated counter. But continues. (JSON parsing error?)"
-						info[:counter] += 1
+						@log.error "Error: API returns repeated counter. But continues."
+						info[:counter] += 10
 						log "Error: repeated counter. Some message may be ignored..."
 					else
 						# may be socket error?
 						@log.debug "observe failed : #{res.inspect}"
 						log "Error: #{e.code}: #{e.message}"
 					end
+				rescue JSON::ParserError => e
+					@log.error e
+					info[:counter] += 10
+					log "Error: JSON::ParserError Some message may be ignored..."
 				rescue Exception => e
 					@log.error e.inspect
 					e.backtrace.each do |l|
