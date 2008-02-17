@@ -101,7 +101,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 
 	def on_user(m)
 		super
-		@real, @copts = @real.split(/\s+/)
+		@real, *@copts = @real.split(/\s+/)
 		@copts ||= []
 
 		# Tiarra sends prev nick when reconnects.
@@ -120,6 +120,14 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		prefix = make_ids(@user_info)
 		@user_info["prefix"] = prefix
 		post @prefix, NICK, prefix.nick
+	rescue Lingr::Client::APIError => e
+		case e.code
+		when 105
+			post nil, ERR_PASSWDMISMATCH, @nick, "Password incorrect"
+		else
+			log "Error: #{e.code}: #{e.message}"
+		end
+		finish
 	end
 
 	def on_privmsg(m)
@@ -239,7 +247,10 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@channels.each do |k, info|
 			info[:observer].kill
 		end
-		@lingr.destroy_session
+		begin
+			@lingr.destroy_session
+		rescue
+		end
 	end
 
 	private
