@@ -214,7 +214,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 			rescue Lingr::Client::APIError => e
 				log "Error: #{e.code}: #{e.message}"
 				log "Coundn't join to #{channel}."
-				if e.code.to_i == 102
+				if e.code == 102
 					log "Invalid session... prompt the client to reconnect"
 					finish
 				end

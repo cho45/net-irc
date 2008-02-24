@@ -34,7 +34,7 @@ If `athack` client option specified,
 all nick in join message is leading with @.
 
 So if you complemente nicks (ex. Irssi),
-it's good for twitter like reply command (@nick).
+it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
