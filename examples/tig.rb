@@ -65,8 +65,9 @@ $LOAD_PATH << "../lib"
 $KCODE = "u" # json use this
 
 require "rubygems"
-require "net/http"
 require "net/irc"
+require "net/http"
+require "net/https"
 require "uri"
 require "json"
 require "socket"
@@ -74,7 +75,6 @@ require "time"
 require "logger"
 require "yaml"
 require "pathname"
-require "digest/md5"
 require "cgi"
 
 Net::HTTP.version_1_2
@@ -108,10 +108,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@groups = {}
-		@channels = [] # join channels (groups)
+		@groups     = {}
+		@channels   = [] # joined channels (groups)
 		@user_agent = "#{self.class}/#{server_version} (tig.rb)"
-		@config = Pathname.new(ENV["HOME"]) + ".tig"
+		@config     = Pathname.new(ENV["HOME"]) + ".tig"
 		load_config
 	end
 
@@ -157,7 +157,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 10 * 60
+				sleep 10 * 60 # 6 times/hour
 			end
 		end
 		sleep 3
@@ -177,16 +177,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 90
+				sleep 90 # 40 times/hour
 			end
 		end
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill rescue nil
+		@check_friends_thread.kill  rescue nil
 		@check_timeline_thread.kill rescue nil
-		@im_thread.kill rescue nil
-		@im.disconnect rescue nil
+		@im_thread.kill             rescue nil
+		@im.disconnect              rescue nil
 	end
 
 	def on_privmsg(m)
@@ -305,12 +305,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		first = true unless @prev_time
-		@prev_time = Time.at(0) if first
+		@prev_time ||= Time.at(0)
 		api("statuses/friends_timeline", {"since" => [@prev_time.httpdate]}).reverse_each do |s|
+			id = s["id"] || s["rid"]
+			next if id.nil? || @timeline.include?(id)
+			@timeline << id
 			nick = s["user"]["screen_name"]
 			mesg = s["text"]
-			# display photo url(wassr only)
+			# display photo url(Wassr only)
 			if s.has_key?('photo_url')
 				mesg += " #{s['photo_url']}"
 			end
@@ -318,19 +320,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
 
-			digest = Digest::MD5.hexdigest("#{nick}::#{mesg}")
-			unless @timeline.include?(digest)
-				@timeline << digest
-				@log.debug [nick, mesg]
-				if nick == @nick # 自分のときは topic に
-					post nick, TOPIC, main_channel, mesg
-				else
-					message(nick, main_channel, mesg)
-				end
-				@groups.each do |channel,members|
-					if members.include?(nick)
-						message(nick, channel, mesg)
-					end
+			@log.debug [id, nick, mesg]
+			if nick == @nick # 自分のときは topic に
+				post nick, TOPIC, main_channel, mesg
+			else
+				message(nick, main_channel, mesg)
+			end
+			@groups.each do |channel, members|
+				if members.include?(nick)
+					message(nick, channel, mesg)
 				end
 			end
 		end
@@ -340,9 +338,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_direct_messages
-		first = true unless @prev_time_d
-		@prev_time_d = Time.now if first
-		api("direct_messages", {"since" => [@prev_time_d.httpdate] }).reverse_each do |s|
+		@prev_time_d ||= Time.now
+		api("direct_messages", {"since" => [@prev_time_d.httpdate]}).reverse_each do |s|
 			nick = s["sender_screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"])
@@ -385,8 +382,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
-							# twitter -> 'id: msg'
-							# wassr   -> 'nick(id): msg'
+							# Twitter -> 'id: msg'
+							# Wassr   -> 'nick(id): msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
@@ -426,32 +423,44 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api(path, q={})
-		ret = {}
-		path = path.sub(%r{^/*}, '/') << '.json'
-		q["source"] = api_source
+		ret     = {}
+		headers = {
+			"User-Agent"               => @user_agent,
+			"X-Twitter-Client"         => api_source,
+			"X-Twitter-Client-Version" => server_version,
+			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
+		}
+		if q.key?("since")
+			headers["If-Modified-Since"] = q["since"].to_s #q.delete("since").to_s
+		end
+		q["source"] ||= api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
 		uri = api_base.dup
-		uri.path  = path
-		uri.query = q
-		@log.debug uri.inspect
-		Net::HTTP.start(uri.host, uri.port) do |http|
-			header = {
-				'Authorization' => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-				'User-Agent'    => @user_agent,
-			}
-			case path
-			when "/statuses/update.json", "/direct_messages/new.json"
-				ret = http.post(uri.request_uri, q, header)
-			else
-				ret = http.get(uri.request_uri, header)
-			end
+		uri.path = path.sub(%r{^/*}, "/") << ".json"
+		http = Net::HTTP.new(uri.host, uri.port)
+		if uri.scheme == "https"
+			http.use_ssl     = true
+			http.verify_mode = OpenSSL::SSL::VERIFY_NONE # FIXME
 		end
+		case uri.path
+		when "/statuses/update.json", "/direct_messages/new.json"
+			req = Net::HTTP::Post.new(uri.request_uri, headers)
+			req.body = q
+		else
+			uri.query = q
+			req = Net::HTTP::Get.new(uri.request_uri, headers)
+		end
+		req.basic_auth(@real, @pass)
+		@log.debug uri.inspect
+		ret = http.request req
 		@log.debug ret.inspect
-		case ret.code
-		when "200"
-			JSON.parse(ret.body.gsub(/'(y(?:es)?|n(?:o)?|true|false|null)'/, '"\1"'))
-		when "304"
+		case ret
+		when Net::HTTPOK # 200
+			JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
+		when Net::HTTPNotModified # 304
 			[]
+		#when Net::HTTPBadRequest # 400
+			# exceeded the rate limitation
 		else
 			raise ApiFailed, "Server Returned #{ret.code}"
 		end
@@ -460,9 +469,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def message(sender, target, str)
-#			str.gsub!(/&#(x)?([0-9a-f]+);/i) do |m|
-#				[$1 ? $2.hex : $2.to_i].pack("U")
-#			end
+#		str.gsub!(/&#(x)?([0-9a-f]+);/i) do
+#			[$1 ? $2.hex : $2.to_i].pack("U")
+#		end
 		str = untinyurl(str)
 		sender =  "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
@@ -476,11 +485,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def untinyurl(text)
 		text.gsub(%r|http://(preview\.)?tinyurl\.com/[0-9a-z=]+|i) {|m|
 			uri = URI(m)
-			uri.host = uri.host.sub($1, '') if $1
+			uri.host = uri.host.sub($1, "") if $1
 			Net::HTTP.start(uri.host, uri.port) {|http|
 				http.open_timeout = 3
 				begin
-					http.head(uri.request_uri, { 'User-Agent' => @user_agent })["Location"]
+					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
 				rescue Timeout::Error
 					m
 				end
