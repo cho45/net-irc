@@ -322,7 +322,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは topic に
-				post nick, TOPIC, main_channel, mesg
+				post nick, TOPIC, main_channel, untinyurl(mesg)
 			else
 				message(nick, main_channel, mesg)
 			end
@@ -406,7 +406,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def save_config
 		config = {
 			:channels => @channels,
-			:groups => @groups,
+			:groups   => @groups,
 		}
 		@config.open("w") do |f|
 			YAML.dump(config, f)
@@ -472,8 +472,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #		str.gsub!(/&#(x)?([0-9a-f]+);/i) do
 #			[$1 ? $2.hex : $2.to_i].pack("U")
 #		end
-		str = untinyurl(str)
-		sender =  "#{sender}!#{sender}@#{api_base.host}"
+		str    = untinyurl(str)
+		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
 	end
 
