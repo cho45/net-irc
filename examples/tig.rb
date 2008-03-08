@@ -424,39 +424,41 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def api(path, q={})
 		ret     = {}
-		headers = {
+		header = {
 			"User-Agent"               => @user_agent,
+			"Authorization"            => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
+			"If-Modified-Since"        => q.key?("since") ? q["since"] : "",
 			"X-Twitter-Client"         => api_source,
 			"X-Twitter-Client-Version" => server_version,
 			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
 		}
-		if q.key?("since")
-			headers["If-Modified-Since"] = q["since"].to_s #q.delete("since").to_s
-		end
+
 		q["source"] ||= api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
+
 		uri = api_base.dup
-		uri.path = path.sub(%r{^/*}, "/") << ".json"
+		uri.path  = path.sub(%r{^/*}, "/") << ".json"
+		uri.query = q
+
 		http = Net::HTTP.new(uri.host, uri.port)
 		if uri.scheme == "https"
 			http.use_ssl     = true
 			http.verify_mode = OpenSSL::SSL::VERIFY_NONE # FIXME
 		end
-		case uri.path
-		when "/statuses/update.json", "/direct_messages/new.json"
-			req = Net::HTTP::Post.new(uri.request_uri, headers)
-			req.body = q
-		else
-			uri.query = q
-			req = Net::HTTP::Get.new(uri.request_uri, headers)
+		http.start do
+			case uri.path
+			when "/statuses/update.json", "/direct_messages/new.json"
+				ret = http.post(uri.request_uri, q, header)
+			else
+				ret = http.get(uri.request_uri, header)
+			end
 		end
-		req.basic_auth(@real, @pass)
-		@log.debug uri.inspect
-		ret = http.request req
-		@log.debug ret.inspect
+
 		case ret
 		when Net::HTTPOK # 200
-			JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
+			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
+			raise ApiFailed, "Server Returned Error: #{ret["error"]}" if ret.kind_of?(Hash) && ret["error"]
+			ret
 		when Net::HTTPNotModified # 304
 			[]
 		#when Net::HTTPBadRequest # 400
