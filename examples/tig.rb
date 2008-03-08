@@ -306,7 +306,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	private
 	def check_timeline
 		@prev_time ||= Time.at(0)
-		api("statuses/friends_timeline", {"since" => [@prev_time.httpdate]}).reverse_each do |s|
+		api("statuses/friends_timeline", {"since" => @prev_time.httpdate}).reverse_each do |s|
 			id = s["id"] || s["rid"]
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
@@ -339,7 +339,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_direct_messages
 		@prev_time_d ||= Time.now
-		api("direct_messages", {"since" => [@prev_time_d.httpdate]}).reverse_each do |s|
+		api("direct_messages", {"since" => @prev_time_d.httpdate}).reverse_each do |s|
 			nick = s["sender_screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"])
