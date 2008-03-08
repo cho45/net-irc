@@ -140,6 +140,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	rescue Lingr::Client::APIError => e
 		log "Error: #{e.code}: #{e.message}"
 		log "Coundn't say to #{channel}."
+		on_join(Message.new(nil, "JOIN", target)) if e.code == 102 # invalid session
 	end
 
 	def on_notice(m)
