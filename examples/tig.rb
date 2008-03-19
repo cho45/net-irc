@@ -353,7 +353,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		first = true unless @friends
 		@friends ||= []
 		friends = api("statuses/friends")
-		return if friends.empty?
 		if first && !@opts.include?("athack")
 			@friends = friends
 			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
@@ -361,6 +360,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
+
+			# twitter api bug?
+			return if !first && (now_friends.length - prv_friends.length).abs > 10
+
 			(now_friends - prv_friends).each do |join|
 				join = "@#{join}" if @opts.include?("athack")
 				post "#{join}!#{join}@#{api_base.host}", JOIN, main_channel
