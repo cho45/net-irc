@@ -353,6 +353,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		first = true unless @friends
 		@friends ||= []
 		friends = api("statuses/friends")
+		return if friends.empty?
 		if first && !@opts.include?("athack")
 			@friends = friends
 			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
