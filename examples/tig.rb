@@ -310,12 +310,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id = s["id"] || s["rid"]
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
-			nick = s["user"]["screen_name"]
+			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
 			mesg = s["text"]
+
+			# added @user in no use @user reply message ( Wassr only )
+			if s.has_key?('reply_user_nick') and s['reply_user_nick'] and s['text'] !~ /^@.*/ # I want reply_user_id in wassr api
+				mesg = "@#{s['reply_user_nick']} #{mesg}"
+			end
+			# display area name(Wassr only)
+			if s.has_key?('areaname') and s["areaname"]
+				mesg += " L: #{s['areaname']}"
+			end
 			# display photo url(Wassr only)
-			if s.has_key?('photo_url')
+			if s.has_key?('photo_url') and s["photo_url"]
 				mesg += " #{s['photo_url']}"
 			end
+
 			# time = Time.parse(s["created_at"]) rescue Time.now
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
