@@ -314,8 +314,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = s["text"]
 
 			# added @user in no use @user reply message ( Wassr only )
-			if s.has_key?('reply_user_nick') and s['reply_user_nick'] and s['text'] !~ /^@.*/ # I want reply_user_id in wassr api
-				mesg = "@#{s['reply_user_nick']} #{mesg}"
+			if s.has_key?('reply_status_url') and s['reply_status_url'] and s['text'] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s['reply_status_url'])
+				reply_user_id = $1
+				mesg = "@#{reply_user_id} #{mesg}"
 			end
 			# display area name(Wassr only)
 			if s.has_key?('areaname') and s["areaname"]
