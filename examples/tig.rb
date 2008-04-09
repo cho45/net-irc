@@ -442,11 +442,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		header = {
 			"User-Agent"               => @user_agent,
 			"Authorization"            => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-			"If-Modified-Since"        => q.key?("since") ? q["since"] : "",
 			"X-Twitter-Client"         => api_source,
 			"X-Twitter-Client-Version" => server_version,
 			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
 		}
+		header["If-Modified-Since"]    =  q["since"] if q.key?("since")
 
 		q["source"] ||= api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
