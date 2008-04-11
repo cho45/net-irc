@@ -523,6 +523,7 @@ if __FILE__ == $0
 		:host  => "localhost",
 		:log   => nil,
 		:debug => false,
+		:foreground => false,
 	}
 
 	OptionParser.new do |parser|
@@ -552,6 +553,11 @@ if __FILE__ == $0
 				opts[:debug] = true
 			end
 
+			on("-f", "--foreground", "run foreground") do |foreground|
+				opts[:log]        = $stdout
+				opts[:foreground] = true
+			end
+
 			parse!(ARGV)
 		end
 	end
@@ -559,14 +565,14 @@ if __FILE__ == $0
 	opts[:logger] = Logger.new(opts[:log], "daily")
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
-	def daemonize(debug=false)
-		return yield if $DEBUG || debug
+	def daemonize(foreground=false)
+		trap("SIGINT")  { exit! 0 }
+		trap("SIGTERM") { exit! 0 }
+		trap("SIGHUP")  { exit! 0 }
+		return yield if $DEBUG || foreground
 		Process.fork do
 			Process.setsid
 			Dir.chdir "/"
-			trap("SIGINT")  { exit! 0 }
-			trap("SIGTERM") { exit! 0 }
-			trap("SIGHUP")  { exit! 0 }
 			File.open("/dev/null") {|f|
 				STDIN.reopen  f
 				STDOUT.reopen f
@@ -577,8 +583,11 @@ if __FILE__ == $0
 		exit! 0
 	end
 
-	daemonize(opts[:debug]) do
+	daemonize(opts[:debug] || opts[:foreground]) do
 		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start
 	end
 end
 
+# Local Variables:
+# coding: utf-8
+# End:
