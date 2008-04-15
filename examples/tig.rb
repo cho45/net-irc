@@ -195,7 +195,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		target, message = *m.params
 		begin
 			if target =~ /^#/
-				ret = api("statuses/update", {"status" => message})
+				# XXX: !list nick でユーザーの発言を表示させてみる試み
+				if message =~ /^!list ([A-Za-z0-9_]+)$/
+					nick = $1
+					@log.debug([ nick, message ])
+					res = api('statuses/user_timeline', { 'id' => nick }).reverse_each do |s|
+						@log.debug(s)
+						mesg = "#{generate_status_message(s)}"
+						post(nick, NOTICE, main_channel, mesg)
+					end
+          
+					unless res
+						post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
+					end
+					ret = true
+				else
+					ret = api("statuses/update", {"status" => message})
+				end
 			else
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
@@ -311,7 +327,29 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
 			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
+			mesg = generate_status_message(s)
+
+			@log.debug [id, nick, mesg]
+			if nick == @nick # 自分のときは topic に
+				post nick, TOPIC, main_channel, untinyurl(mesg)
+			else
+				message(nick, main_channel, mesg)
+			end
+			@groups.each do |channel, members|
+				if members.include?(nick)
+					message(nick, channel, mesg)
+				end
+			end
+		end
+		@log.debug "@timeline.size = #{@timeline.size}"
+		@timeline  = @timeline.last(100)
+		@prev_time = Time.now
+	end
+
+	def generate_status_message(status)
+			s = status
 			mesg = s["text"]
+      @log.debug(mesg)
 
 			# added @user in no use @user reply message ( Wassr only )
 			if s.has_key?('reply_status_url') and s['reply_status_url'] and s['text'] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s['reply_status_url'])
@@ -330,22 +368,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			# time = Time.parse(s["created_at"]) rescue Time.now
 			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
-
-			@log.debug [id, nick, mesg]
-			if nick == @nick # 自分のときは topic に
-				post nick, TOPIC, main_channel, untinyurl(mesg)
-			else
-				message(nick, main_channel, mesg)
-			end
-			@groups.each do |channel, members|
-				if members.include?(nick)
-					message(nick, channel, mesg)
-				end
-			end
-		end
-		@log.debug "@timeline.size = #{@timeline.size}"
-		@timeline  = @timeline.last(100)
-		@prev_time = Time.now
+			mesg
 	end
 
 	def check_direct_messages
