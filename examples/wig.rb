@@ -131,6 +131,10 @@ if __FILE__ == $0
 				opts[:foreground] = true
 			end
 
+			on("-n", "--name [login id]") do |name|
+				opts[:name] = name
+			end
+
 			parse!(ARGV)
 		end
 	end

@@ -120,7 +120,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post @prefix, JOIN, main_channel
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 
-		@real, *@opts = @real.split(/\s+/)
+		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts ||= []
 
 		jabber = @opts.find {|i| i =~ /^jabber=(\S+?):(\S+)/ }
@@ -579,6 +579,10 @@ if __FILE__ == $0
 			on("-f", "--foreground", "run foreground") do |foreground|
 				opts[:log]        = $stdout
 				opts[:foreground] = true
+			end
+
+			on("-n", "--name [user name or email address]") do |name|
+				opts[:name] = name
 			end
 
 			parse!(ARGV)
