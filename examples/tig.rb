@@ -331,7 +331,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは topic に
-				post nick, TOPIC, main_channel, untinyurl(mesg)
+				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
 				message(nick, main_channel, mesg)
 			end
