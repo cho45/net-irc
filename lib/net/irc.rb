@@ -826,6 +826,11 @@ class Net::IRC::Server
 		def on_message(m)
 		end
 
+		# Default PING callback. Response PONG.
+		def on_ping(m)
+			post api_base.host, PONG, m.params[0]
+		end
+
 		# Do nothing.
 		# This is for avoiding error on calling super.
 		# So you can always call super at subclass.
