@@ -828,7 +828,7 @@ class Net::IRC::Server
 
 		# Default PING callback. Response PONG.
 		def on_ping(m)
-			post api_base.host, PONG, m.params[0]
+			post server_name, PONG, m.params[0]
 		end
 
 		# Do nothing.
