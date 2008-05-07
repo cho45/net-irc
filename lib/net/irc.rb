@@ -291,8 +291,7 @@ module Net::IRC
 	end
 
 	COMMANDS = Constants.constants.inject({}) {|r,i| # :nodoc:
-		r[Constants.const_get(i)] = i
-		r
+		r.update(Constants.const_get(i) => i)
 	}
 
 	class Prefix < String
@@ -457,9 +456,9 @@ class Net::IRC::Client
 	def start
 		@socket = TCPSocket.open(@host, @port)
 		on_connected
-		post PASS,  @opts.pass if @opts.pass
-		post NICK,  @opts.nick
-		post USER,  @opts.user, "0", "*", @opts.real
+		post PASS, @opts.pass if @opts.pass
+		post NICK, @opts.nick
+		post USER, @opts.user, "0", "*", @opts.real
 		while l = @socket.gets
 			begin
 				@log.debug "RECEIVE: #{l.chomp}"
