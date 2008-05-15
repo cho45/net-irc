@@ -670,8 +670,9 @@ class Net::IRC::Client
 	#     post PRIVMSG, "#channel", "foobar"
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
-			s.gsub(/[\r\n]/, " ")
+			s ? s.gsub(/[\r\n]/, " ") : ""
 		})
+
 		@log.debug "SEND: #{m.to_s.chomp}"
 		@socket << m
 	end
