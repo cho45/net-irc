@@ -115,11 +115,27 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@lingr = Lingr::Client.new(@opts.api_key)
 		@lingr.create_session('human')
 		@lingr.login(@real, @pass)
+		@session_observer = Thread.start do
+			loop do
+				begin
+					@log.info "Verifying session..."
+					@log.info "Verifed session => #{@lingr.verify_session.inspect}"
+				rescue Lingr::Client::APIError => e
+					@log.info "Verify session raised APIError<#{e.code}:#{e.message}>. Try to re-create session."
+					@lingr.create_session('human')
+					@lingr.login(@real, @pass)
+				rescue Exception => e
+					@log.info "Error on verify_session: #{e.inspect}"
+				end
+				sleep 9 * 60
+			end
+		end
 		@user_info = @lingr.get_user_info
 
 		prefix = make_ids(@user_info)
 		@user_info["prefix"] = prefix
 		post @prefix, NICK, prefix.nick
+
 	rescue Lingr::Client::APIError => e
 		case e.code
 		when 105
@@ -248,6 +264,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		@channels.each do |k, info|
 			info[:observer].kill
 		end
+		@session_observer.kill
 		begin
 			@lingr.destroy_session
 		rescue
