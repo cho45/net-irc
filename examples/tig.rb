@@ -236,9 +236,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id  = @tmap[tid]
 			if id
 				res = api("favorites/create/#{id}", {})
-				post nil, NOTICE, "Fav: #{res["screen_name"]}: #{res["text"]}"
+				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
 			else
-				post nil, NOTICE, "No such id #{tid}"
+				post nil, NOTICE, main_channel, "No such id #{tid}"
 			end
 		end
 	rescue ApiFailed => e
