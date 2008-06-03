@@ -21,6 +21,7 @@ require "rubygems"
 require "net/http"
 require "json"
 require "uri"
+require "timeout"
 
 module Lingr
 	class Client
@@ -49,7 +50,7 @@ module Lingr
 			@api_key   = api_key
 			@host      = hostname
 			@verbosity = verbosity
-			@timeout   = 120
+			@timeout   = 60
 		end
 
 		# Create a new API session
@@ -243,7 +244,9 @@ module Lingr
 				raise ClientError, "not in a session"
 			end
 
-			response = JSON.parse(self.send(method, url_for(path), parameters.merge({ :format => 'json' })))
+			response = Timeout.timeout(@timeout) {
+				JSON.parse(self.send(method, url_for(path), parameters.merge({ :format => 'json' })))
+			}
 
 			unless success?(response)
 				raise APIError, response["error"]
@@ -262,27 +265,17 @@ module Lingr
 			q = params.inject("?") {|s, p| s << "#{p[0].to_s}=#{URI.encode(p[1].to_s, /./)}&"}.chop
 			path << q if q.length > 0
 
-			begin
-				Net::HTTP.start(uri.host, uri.port) do |http| 
-					http.read_timeout = @timeout
-					req = Net::HTTP::Get.new(path)
-					req.basic_auth(uri.user, uri.password) if uri.user
-					parse_result http.request(req)
-			end
-			rescue Exception
-				warn "exception on HTTP GET: #{$!}"
-				nil
+			Net::HTTP.start(uri.host, uri.port) do |http|
+				http.read_timeout = @timeout
+				req = Net::HTTP::Get.new(path)
+				req.basic_auth(uri.user, uri.password) if uri.user
+				parse_result http.request(req)
 			end
 		end
 
 		def post(url, params)
 			if !params.find {|p| p[1].is_a?(Hash)}
-				begin
-					parse_result Net::HTTP.post_form(URI.parse(url), params)
-				rescue Exception
-					warn "exception on HTTP POST: #{$!}"
-					nil
-				end
+				parse_result Net::HTTP.post_form(URI.parse(url), params)
 			else
 				boundary = 'lingr-api-client' + (0x1000000 + rand(0x1000000).to_s(16))
 
@@ -305,14 +298,9 @@ module Lingr
 				}.join('') + "--#{boundary}--\r\n"
 
 				uri = URI.parse(url)
-				begin
-					Net::HTTP.start(uri.host, uri.port) do |http|
-						http.read_timeout = @timeout
-						parse_result http.post2(uri.path, query, "Content-Type" => "multipart/form-data; boundary=#{boundary}")
-					end
-				rescue Exception
-					warn "exception on multipart POST: #{$!}"
-					nil
+				Net::HTTP.start(uri.host, uri.port) do |http|
+					http.read_timeout = @timeout
+					parse_result http.post2(uri.path, query, "Content-Type" => "multipart/form-data; boundary=#{boundary}")
 				end
 			end
 		end

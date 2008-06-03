@@ -83,6 +83,7 @@ require "rubygems"
 require "lingr"
 require "net/irc"
 require "pit"
+require "mutex_m"
 
 
 class LingrIrcGateway < Net::IRC::Server::Session
@@ -97,6 +98,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def initialize(*args)
 		super
 		@channels = {}
+		@channels.extend(Mutex_m)
 	end
 
 	def on_user(m)
@@ -155,8 +157,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		end
 	rescue Lingr::Client::APIError => e
 		log "Error: #{e.code}: #{e.message}"
-		log "Coundn't say to #{channel}."
-		on_join(Message.new(nil, "JOIN", target)) if e.code == 102 # invalid session
+		log "Coundn't say to #{target}."
+		on_join(Message.new(nil, "JOIN", [target])) if e.code == 102 # invalid session
 	end
 
 	def on_notice(m)
@@ -203,7 +205,7 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return unless channel
 
-		info = @channels[channel.downcase]
+		info = @channels.synchronize { @channels[channel.downcase] }
 		me   = @user_info["prefix"]
 		res  = @lingr.get_room_info(info[:chan_id], nil, info[:password])
 		res["occupants"].each do |o|
@@ -227,7 +229,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				res = @lingr.enter_room(channel.sub(/^#/, ""), @nick, password)
 				res["password"] = password
 
-				create_observer(channel, res)
+				@channels.synchronize do
+					create_observer(channel, res)
+				end
 			rescue Lingr::Client::APIError => e
 				log "Error: #{e.code}: #{e.message}"
 				log "Coundn't join to #{channel}."
@@ -258,13 +262,18 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		else
 			post nil, ERR_NOSUCHCHANNEL, prefix.nick, channel, "No such channel"
 		end
+	rescue Lingr::Client::APIError => e
+		unless e.code == 102
+			log "Error: #{e.code}: #{e.message}"
+			log "Coundn't say to #{target}."
+		end
 	end
 
 	def on_disconnected
 		@channels.each do |k, info|
 			info[:observer].kill
 		end
-		@session_observer.kill
+		@session_observer.kill rescue nil
 		begin
 			@lingr.destroy_session
 		rescue
@@ -276,7 +285,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 	def create_observer(channel, response)
 		Thread.start(channel, response) do |chan, res|
 			myprefix = @user_info["prefix"]
-			post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
+			if @channels[chan.downcase]
+				@channels[chan.downcase][:observer].kill rescue nil
+			end
 			@channels[chan.downcase] = {
 				:ticket   => res["ticket"],
 				:counter  => res["room"]["counter"],
@@ -290,6 +301,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 				:hcounter => 0,
 				:observer => Thread.current,
 			}
+
+			post server_name, TOPIC, chan, "#{res["room"]["url"]} #{res["room"]["description"]}"
 			post myprefix, JOIN, channel
 			post server_name, MODE, channel, "+o", myprefix.nick
 			post nil, RPL_NAMREPLY,   myprefix.nick, "=", chan, @channels[chan.downcase][:users].map{|k,v|
@@ -390,8 +403,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						@log.fatal "BUG: API returns invalid response format. JSON is unsupported?"
 						exit 1
 					when 109
-						@log.error "BUG: API returns invalid ticket. Part this channel..."
-						on_part(Message.new("", PART, [chan, res["error"]["message"]]))
+						@log.error "Error: API returns invalid ticket. Rejoin this channel..."
+						on_part(Message.new(nil, PART, [chan, res["error"]["message"]]))
+						on_join(Message.new(nil, JOIN, [chan, info["password"]]))
 					when 114
 						@log.fatal "BUG: API returns no counter parameter."
 						exit 1
@@ -406,6 +420,8 @@ class LingrIrcGateway < Net::IRC::Server::Session
 						@log.debug "observe failed : #{res.inspect}"
 						log "Error: #{e.code}: #{e.message}"
 					end
+				rescue Timeout::Error
+					# pass
 				rescue JSON::ParserError => e
 					@log.error e
 					info[:counter] += 10
