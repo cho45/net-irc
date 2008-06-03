@@ -112,6 +112,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@channels   = [] # joined channels (groups)
 		@user_agent = "#{self.class}/#{server_version} (tig.rb)"
 		@config     = Pathname.new(ENV["HOME"]) + ".tig"
+		@map        = nil
 		load_config
 	end
 
@@ -122,6 +123,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts ||= []
+		@tmap   = TypableMap.new
 
 		jabber = @opts.find {|i| i =~ /^jabber=(\S+?):(\S+)/ }
 		if jabber
@@ -229,7 +231,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless res
 				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
 			end
+		when "fav"
+			tid = args[1]
+			id  = @tmap[tid]
+			res = api("favorites/create/#{id}", {})
+
+			if res
+				post nil, NOTICE, "Fav: #{res.inspect}"
+			else
+				post nil, NOTICE, "No such id #{tid}"
+			end
 		end
+	rescue ApiFailed => e
+		log e.inspect
 	end
 
 	def on_whois(m)
@@ -331,15 +345,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
 			mesg = generate_status_message(s)
 
+			tid = @tmap.push(id)
+
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは topic に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
-				message(nick, main_channel, mesg)
+				message(nick, main_channel, "%s [%s]" % [mesg, tid])
 			end
 			@groups.each do |channel, members|
 				if members.include?(nick)
-					message(nick, channel, mesg)
+					message(nick, channel, "%s [%s]" % [mesg, tid])
 				end
 			end
 		end
@@ -501,10 +517,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			ret
 		when Net::HTTPNotModified # 304
 			[]
-		#when Net::HTTPBadRequest # 400
+		when Net::HTTPBadRequest # 400
 			# exceeded the rate limitation
+			raise ApiFailed, "#{ret.code}: #{ret["error"]}"
 		else
-			raise ApiFailed, "Server Returned #{ret.code}"
+			raise ApiFailed, "Server Returned #{ret.code} #{ret.message}"
 		end
 	rescue Errno::ETIMEDOUT, JSON::ParserError, IOError, Timeout::Error, Errno::ECONNRESET => e
 		raise ApiFailed, e.inspect
@@ -538,6 +555,46 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			}
 		}
 	end
+
+	class TypableMap < Hash
+		Roma = "a i u e o k g s z t d n h b p m y r w j v l q".split(/ /).map {|k|
+			%w|a i u e o|.map {|v| "#{k}#{v}" }
+		}.flatten
+
+		def initialize(size=2)
+			@seq = Roma
+			@map = {}
+			@n   = 0
+		end
+
+		def generate(n)
+			ret = []
+			begin
+				n, r = n.divmod(@seq.size)
+				ret << @seq[r]
+			end while n > 0
+			ret.reverse.join
+		end
+
+		def push(obj)
+			id = generate(@n)
+			self[id] = obj
+			@n += 1
+			@n = @n % (@seq.size ** 2)
+			id
+		end
+		alias << push
+
+		def clear
+			@n = 0
+			super
+		end
+
+		private :[]=
+		undef update, merge, merge!, replace
+	end
+
+
 end
 
 if __FILE__ == $0
