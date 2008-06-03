@@ -200,6 +200,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#/
 				if @im && @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, message)
+					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
 					ret = api("statuses/update", {"status" => message})
 				end
