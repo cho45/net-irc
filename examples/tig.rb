@@ -190,28 +190,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
+		return on_ctcp(m[0], ctcp_decoding(m[1])) if m.ctcp?
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
 		begin
 			if target =~ /^#/
-				# XXX: !list nick でユーザーの発言を表示させてみる試み
-				if message =~ /^!list ([A-Za-z0-9_]+)$/
-					nick = $1
-					@log.debug([ nick, message ])
-					res = api('statuses/user_timeline', { 'id' => nick }).reverse_each do |s|
-						@log.debug(s)
-						mesg = "#{generate_status_message(s)}"
-						post(nick, NOTICE, main_channel, mesg)
-					end
-          
-					unless res
-						post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
-					end
-					ret = true
-				else
-					ret = api("statuses/update", {"status" => message})
-				end
+				ret = api("statuses/update", {"status" => message})
 			else
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
@@ -226,6 +211,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				retry
 			else
 				log "Some Error Happened on Sending #{message}. #{e}"
+			end
+		end
+	end
+
+	def on_ctcp(target, message)
+		_, command, *args = message.split(/\s+/)
+		case command
+		when "list"
+			nick = args[1]
+			@log.debug([ nick, message ])
+			res = api('statuses/user_timeline', { 'id' => nick }).reverse_each do |s|
+				@log.debug(s)
+				post nick, NOTICE, main_channel, "#{generate_status_message(s)}"
+			end
+
+			unless res
+				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
 			end
 		end
 	end
