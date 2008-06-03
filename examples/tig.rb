@@ -198,7 +198,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		target, message = *m.params
 		begin
 			if target =~ /^#/
-				ret = api("statuses/update", {"status" => message})
+				if @im && @im.connected? # in jabber mode, using jabber post
+					ret = @im.deliver(jabber_bot_id, message)
+				else
+					ret = api("statuses/update", {"status" => message})
+				end
 			else
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
