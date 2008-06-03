@@ -221,7 +221,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		_, command, *args = message.split(/\s+/)
 		case command
 		when "list"
-			nick = args[1]
+			nick = args[0]
 			@log.debug([ nick, message ])
 			res = api('statuses/user_timeline', { 'id' => nick }).reverse_each do |s|
 				@log.debug(s)
@@ -232,12 +232,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
 			end
 		when "fav"
-			tid = args[1]
+			tid = args[0]
 			id  = @tmap[tid]
-			res = api("favorites/create/#{id}", {})
-
-			if res
-				post nil, NOTICE, "Fav: #{res.inspect}"
+			if id
+				res = api("favorites/create/#{id}", {})
+				post nil, NOTICE, "Fav: #{res["screen_name"]}: #{res["text"]}"
 			else
 				post nil, NOTICE, "No such id #{tid}"
 			end
@@ -365,28 +364,28 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def generate_status_message(status)
-			s = status
-			mesg = s["text"]
-      @log.debug(mesg)
+		s = status
+		mesg = s["text"]
+		@log.debug(mesg)
 
-			# added @user in no use @user reply message ( Wassr only )
-			if s.has_key?('reply_status_url') and s['reply_status_url'] and s['text'] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s['reply_status_url'])
-				reply_user_id = $1
-				mesg = "@#{reply_user_id} #{mesg}"
-			end
-			# display area name(Wassr only)
-			if s.has_key?('areaname') and s["areaname"]
-				mesg += " L: #{s['areaname']}"
-			end
-			# display photo url(Wassr only)
-			if s.has_key?('photo_url') and s["photo_url"]
-				mesg += " #{s['photo_url']}"
-			end
+		# added @user in no use @user reply message ( Wassr only )
+		if s.has_key?('reply_status_url') and s['reply_status_url'] and s['text'] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s['reply_status_url'])
+			reply_user_id = $1
+			mesg = "@#{reply_user_id} #{mesg}"
+		end
+		# display area name(Wassr only)
+		if s.has_key?('areaname') and s["areaname"]
+			mesg += " L: #{s['areaname']}"
+		end
+		# display photo url(Wassr only)
+		if s.has_key?('photo_url') and s["photo_url"]
+			mesg += " #{s['photo_url']}"
+		end
 
-			# time = Time.parse(s["created_at"]) rescue Time.now
-			m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
-			mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
-			mesg
+		# time = Time.parse(s["created_at"]) rescue Time.now
+		m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
+		mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
+		mesg
 	end
 
 	def check_direct_messages
@@ -496,6 +495,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		uri.path  = path.sub(%r{^/*}, "/") << ".json"
 		uri.query = q
 
+		@log.debug uri.inspect
 		http = Net::HTTP.new(uri.host, uri.port)
 		if uri.scheme == "https"
 			http.use_ssl     = true
