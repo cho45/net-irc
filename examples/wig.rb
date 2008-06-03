@@ -22,7 +22,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	wassr {
 		host: localhost
 		port: 16670
-		name: username@example.com athack
+		name: username@example.com athack jabber=username@example.com:jabberpasswd
 		password: password on Wassr
 		in-encoding: utf8
 		out-encoding: utf8
