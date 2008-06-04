@@ -129,8 +129,8 @@ module Net::IRC
 		RPL_YOUREOPER         = '381'
 		RPL_REHASHING         = '382'
 		RPL_YOURESERVICE      = '383'
-		RPL_TIM               = '391'
-		RPL_                  = '392'
+		RPL_TIME              = '391'
+		RPL_USERSSTART        = '392'
 		RPL_USERS             = '393'
 		RPL_ENDOFUSERS        = '394'
 		RPL_NOUSERS           = '395'
@@ -201,7 +201,7 @@ module Net::IRC
 		ERR_PASSWDMISMATCH    = '464'
 		ERR_YOUREBANNEDCREEP  = '465'
 		ERR_YOUWILLBEBANNED   = '466'
-		ERR_KEYSE             = '467'
+		ERR_KEYSET            = '467'
 		ERR_CHANNELISFULL     = '471'
 		ERR_UNKNOWNMODE       = '472'
 		ERR_INVITEONLYCHAN    = '473'
@@ -805,12 +805,12 @@ class Net::IRC::Server
 		end
 
 		# Default USER callback.
-		# Set @user, @real, @host and call inital_message.
+		# Set @user, @real, @host and call initial_message.
 		def on_user(m)
 			@user, @real = m.params[0], m.params[3]
 			@host = @socket.peeraddr[2]
 			@prefix = Prefix.new("#{@nick}!#{@user}@#{@host}")
-			inital_message
+			initial_message
 		end
 
 		# Call when socket connected.
@@ -854,7 +854,7 @@ class Net::IRC::Server
 
 		# Call when client connected.
 		# Send RPL_WELCOME sequence. If you want to customize, override this method at subclass.
-		def inital_message
+		def initial_message
 			post server_name, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@prefix}"
 			post server_name, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
 			post server_name, RPL_CREATED,  @nick, "This server was created #{Time.now}"
