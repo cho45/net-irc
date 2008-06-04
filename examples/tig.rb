@@ -570,6 +570,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@seq = Roma
 			@map = {}
 			@n   = 0
+			@size = size
 		end
 
 		def generate(n)
@@ -585,7 +586,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id = generate(@n)
 			self[id] = obj
 			@n += 1
-			@n = @n % (@seq.size ** 2)
+			@n = @n % (@seq.size ** @size)
 			id
 		end
 		alias << push
