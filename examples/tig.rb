@@ -179,7 +179,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 90 # 40 times/hour
+				sleep 180 # 20 times/hour
 			end
 		end
 	end
