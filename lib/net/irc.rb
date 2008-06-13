@@ -9,7 +9,7 @@ require "monitor"
 module Net; end
 
 module Net::IRC
-	VERSION = "0.0.2"
+	VERSION = "0.0.3"
 	class IRCException < StandardError; end
 
 	module PATTERN # :nodoc:
