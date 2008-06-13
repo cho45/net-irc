@@ -1,18 +1,29 @@
-ChangeLog of http://svn.coderepos.org/share/lang/ruby/net-irc/trunk
+2008-06-14 cho45
+
+	* [bug]:
+		Fixed examples. (twitter, wassr, lingr gateways)
+	* [release]:
+		Released 0.0.3
+
+2008-02-06 cho45
+
+	* [release] @5832:
+		Released 0.0.2
+
 
 2008-02-01 cho45
 
 	* [bug] @5986:
-		Fix to destroy closed stream. 
+		Fixed to destroy closed stream.
 
 2008-01-31 cho45
 
 	* [new] @5939:
-		Add client example. 
+		Added client example.
 
 	* [new] @5929:
-		Update tests.
-		Allow lame prefix in RPL_WELCOME (like freenode) 
+		Updated tests.
+		Made allow lame prefix in RPL_WELCOME (like freenode) 
 
 2008-01-29 cho45
 
@@ -23,5 +34,5 @@ ChangeLog of http://svn.coderepos.org/share/lang/ruby/net-irc/trunk
 		Net::IRC::Server の修正に追従できていなかった
 
 	* [release] @5832:
-		Release 0.0.1
+		Released 0.0.1
 

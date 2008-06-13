@@ -117,11 +117,6 @@ Rake::ShipitTask.new do |s|
 	s.Step.new {
 		system("svn", "up")
 	}.and {}
-	s.Step.new {
-		raise "changelog-with-hatenastar.rb is not found" unless system("which", "changelog-with-hatenastar.rb")
-	}.and {
-		system("changelog-with-hatenastar.rb > ChangeLog")
-	}
 	s.ChangeVersion "lib/net/irc.rb", "VERSION"
 	s.Commit
 	s.Task :clean, :package
