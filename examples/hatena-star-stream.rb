@@ -14,6 +14,7 @@ $LOAD_PATH << "../lib"
 $KCODE = "u" # json use this
 
 require "rubygems"
+require "json"
 require "net/irc"
 require "mechanize"
 
@@ -55,6 +56,8 @@ class HatenaStarStream < Net::IRC::Server::Session
 			post server_name, ERR_PASSWDMISMATCH, ":Password incorrect"
 			finish
 		end
+
+		start_observer
 	end
 
 	def on_disconnected
@@ -82,8 +85,10 @@ class HatenaStarStream < Net::IRC::Server::Session
 	private
 	def start_observer
 		@observer = Thread.start do
+			Thread.abort_on_exception = true
+			reads = []
 			loop do
-				@ua.get("http://s.hatena.ne.jp/cho45/report")
+				@ua.get("http://s.hatena.ne.jp/#{@real}/report")
 				entries = @ua.page.root.search("#main span.entry-title a").map {|a|
 					a[:href]
 				}
@@ -102,15 +107,34 @@ class HatenaStarStream < Net::IRC::Server::Session
 							true
 						end
 					}.partition {|star| star["quote"].empty? }
-					post server_name, main_channel, entry if s.length + quoted.length > 0
-					post server_name, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
-					post server_name, main_channel, quoted.map {|star| "id:#{star["name"]} '#{star["quote"]}'" } unless quoted.empty?
+					post server_name, PRIVMSG, main_channel, entry if s.length + quoted.length > 0
+					post server_name, PRIVMSG, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
+
+					quoted.each do |star|
+						post server_name, PRIVMSG, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
+					end
 				end
 
 				sleep 60
 			end
 		end
 	end
+
+	def retrive_stars(entries, n=0)
+		uri = "http://s.hatena.ne.jp/entries.json?"
+		while uri.length < 1800 and n < entries.length
+			uri << "uri=#{URI.escape(entries[n], /[^-.!~*'()\w]/n)}&"
+			n += 1
+		end
+		ret = JSON.load(@ua.get(uri).body)["entries"].inject({}) {|r,i|
+			r.update(i["uri"] => i["stars"])
+		}
+		if n < entries.length
+			ret.update retrive_stars(entries, n)
+		end
+		ret
+	end
+
 end
 
 if __FILE__ == $0
