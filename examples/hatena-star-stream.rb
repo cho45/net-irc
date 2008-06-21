@@ -107,11 +107,11 @@ class HatenaStarStream < Net::IRC::Server::Session
 							true
 						end
 					}.partition {|star| star["quote"].empty? }
-					post server_name, PRIVMSG, main_channel, entry if s.length + quoted.length > 0
-					post server_name, PRIVMSG, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
+					post server_name, NOTICE, main_channel, entry if s.length + quoted.length > 0
+					post server_name, NOTICE, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
 
 					quoted.each do |star|
-						post server_name, PRIVMSG, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
+						post server_name, NOTICE, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
 					end
 				end
 
