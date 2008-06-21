@@ -134,6 +134,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 
 	def login
 		@ua.get "https://www.hatena.ne.jp/login?backurl=http%3A%2F%2Fd.hatena.ne.jp%2F"
+		return if @ua.page.forms.empty?
 
 		form             = @ua.page.forms.first
 		form["name"]     = @real
