@@ -18,6 +18,7 @@ require "json"
 require "net/irc"
 require "mechanize"
 
+# Mixi from mixi.vim by ujihisa!
 class Mixi
 	def initialize(email, password, mixi_premium = false, image_dir = '~/.vim/mixi_images')
 		require 'kconv'
