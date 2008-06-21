@@ -266,6 +266,9 @@ class LingrIrcGateway < Net::IRC::Server::Session
 		unless e.code == 102
 			log "Error: #{e.code}: #{e.message}"
 			log "Coundn't say to #{target}."
+
+			@channels.delete(channel.downcase)
+			post prefix, PART, channel, "Parted"
 		end
 	end
 
