@@ -44,19 +44,6 @@ class HatenaStarStream < Net::IRC::Server::Session
 		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts ||= []
 
-		@ua.get "https://www.hatena.ne.jp/login?backurl=http%3A%2F%2Fd.hatena.ne.jp%2F"
-
-		form             = @ua.page.forms.first
-		form["name"]     = @real
-		form["password"] = @pass
-
-		@ua.submit(form)
-
-		unless @ua.page.forms.empty?
-			post server_name, ERR_PASSWDMISMATCH, ":Password incorrect"
-			finish
-		end
-
 		start_observer
 	end
 
@@ -65,6 +52,15 @@ class HatenaStarStream < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
+		@ua.instance_eval do
+			get "http://h.hatena.ne.jp/"
+			form = page.forms.find {|f| f.action == "/entry" }
+			form["body"] = m[1]
+			submit form
+		end
+		post server_name, NOTICE, main_channel, "posted"
+	rescue Exception => e
+		log e.inspect
 	end
 
 	def on_ctcp(target, message)
@@ -88,6 +84,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 			Thread.abort_on_exception = true
 			reads = []
 			loop do
+				login
 				@ua.get("http://s.hatena.ne.jp/#{@real}/report")
 				entries = @ua.page.root.search("#main span.entry-title a").map {|a|
 					a[:href]
@@ -135,6 +132,20 @@ class HatenaStarStream < Net::IRC::Server::Session
 		ret
 	end
 
+	def login
+		@ua.get "https://www.hatena.ne.jp/login?backurl=http%3A%2F%2Fd.hatena.ne.jp%2F"
+
+		form             = @ua.page.forms.first
+		form["name"]     = @real
+		form["password"] = @pass
+
+		@ua.submit(form)
+
+		unless @ua.page.forms.empty?
+			post server_name, ERR_PASSWDMISMATCH, ":Password incorrect"
+			finish
+		end
+	end
 end
 
 if __FILE__ == $0
