@@ -122,7 +122,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 				ensure
 					db.close rescue nil
 				end
-				sleep 60
+				sleep 60 * 5
 			end
 		end
 	end
