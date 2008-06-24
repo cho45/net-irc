@@ -355,7 +355,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if nick == @nick # 自分のときは topic に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
-				message(nick, main_channel, "%s [%s]" % [mesg, tid])
+				message(nick, main_channel, "%s \x0314 [%s]" % [mesg, tid])
 			end
 			@groups.each do |channel, members|
 				if members.include?(nick)
