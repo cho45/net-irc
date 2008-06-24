@@ -156,7 +156,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		if @opts["jabber"]
 			jid, pass = @opts["jabber"].split(/:/, 2)
-			jabber.replace("jabber=#{jid}:********")
+			@opts["jabber"].replace("jabber=#{jid}:********")
 			if jabber_bot_id
 				begin
 					require "xmpp4r-simple"
@@ -167,7 +167,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					finish
 				end
 			else
-				jabber = nil
+				@opts.delete("jabber")
 				log "This gateway does not support Jabber bot."
 			end
 		end
