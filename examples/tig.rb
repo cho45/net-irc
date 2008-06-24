@@ -46,6 +46,26 @@ Apply id to each message for make favorites by CTCP ACTION.
 
 	/me fav id
 
+<color> can be
+
+	0  => white
+	1  => black
+	2  => blue         navy
+	3  => green
+	4  => red
+	5  => brown        maroon
+	6  => purple
+	7  => orange       olive
+	8  => yellow
+	9  => lightgreen   lime
+	10 => teal
+	11 => lightcyan    cyan aqua
+	12 => lightblue    royal
+	13 => pink         lightpurple  fuchsia
+	14 => grey
+	15 => lightgrey    silver
+
+
 ### jabber=<jid>:<pass>
 
 If `jabber=<jid>:<pass>` option specified,
