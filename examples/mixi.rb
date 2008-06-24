@@ -28,11 +28,11 @@ class Mixi
 		@image_dir = File.expand_path image_dir
 		@email, @password, @mixi_premium =
 			email, password, mixi_premium
-		@agent = WWW::Mechanize.new
-		@agent.user_agent_alias = 'Mac Safari'
 	end
 
 	def post(title, body, images)
+		@agent = WWW::Mechanize.new
+		@agent.user_agent_alias = 'Mac Safari'
 		page = @agent.get 'http://mixi.jp/home.pl'
 		form = page.forms[0]
 		form.email = @email

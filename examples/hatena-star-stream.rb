@@ -17,6 +17,8 @@ require "rubygems"
 require "json"
 require "net/irc"
 require "mechanize"
+require "sdbm"
+require "tmpdir"
 
 class HatenaStarStream < Net::IRC::Server::Session
 	def server_name
@@ -34,6 +36,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 	def initialize(*args)
 		super
 		@ua = WWW::Mechanize.new
+		@ua.max_history = 1
 	end
 
 	def on_user(m)
@@ -82,36 +85,43 @@ class HatenaStarStream < Net::IRC::Server::Session
 	def start_observer
 		@observer = Thread.start do
 			Thread.abort_on_exception = true
-			reads = []
 			loop do
-				login
-				@ua.get("http://s.hatena.ne.jp/#{@real}/report")
-				entries = @ua.page.root.search("#main span.entry-title a").map {|a|
-					a[:href]
-				}
+				begin
+					login
+					@log.info "getting report..."
+					@ua.get("http://s.hatena.ne.jp/#{@real}/report")
+					entries = @ua.page.root.search("#main span.entry-title a").map {|a|
+						a[:href]
+					}
 
-				stars = retrive_stars(entries)
+					@log.info "getting stars... #{entries.length}"
+					stars = retrive_stars(entries)
 
-				entries.reverse_each do |entry|
-					next if stars[entry].empty?
-					s, quoted = stars[entry].select {|star|
-						id = "#{entry}::#{star.values_at("name", "quote").inspect}"
-						if reads.include?(id)
-							false
-						else
-							reads << id
-							reads = reads.last(500)
-							true
+					db = SDBM.open("#{Dir.tmpdir}/#{@real}.db", 0666)
+					entries.reverse_each do |entry|
+						next if stars[entry].empty?
+						s, quoted = stars[entry].select {|star|
+							id = "#{entry}::#{star.values_at("name", "quote").inspect}"
+							if db.include?(id)
+								false
+							else
+								db[id] = "1"
+								true
+							end
+						}.partition {|star| star["quote"].empty? }
+						post server_name, NOTICE, main_channel, entry if s.length + quoted.length > 0
+						post server_name, NOTICE, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
+
+						quoted.each do |star|
+							post server_name, NOTICE, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
 						end
-					}.partition {|star| star["quote"].empty? }
-					post server_name, NOTICE, main_channel, entry if s.length + quoted.length > 0
-					post server_name, NOTICE, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
-
-					quoted.each do |star|
-						post server_name, NOTICE, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
 					end
-				end
 
+				rescue Exception => e
+					@log.error e.inspect
+				ensure
+					db.close rescue nil
+				end
 				sleep 60
 			end
 		end
@@ -124,6 +134,9 @@ class HatenaStarStream < Net::IRC::Server::Session
 			n += 1
 		end
 		ret = JSON.load(@ua.get(uri).body)["entries"].inject({}) {|r,i|
+			if i["stars"].any? {|star| star.kind_of? Numeric }
+				i = JSON.load(@ua.get("http://s.hatena.ne.jp/entry.json?uri=#{URI.escape(i["uri"])}").body)["entries"].first
+			end
 			r.update(i["uri"] => i["stars"])
 		}
 		if n < entries.length
@@ -133,6 +146,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 	end
 
 	def login
+		@log.info "logging in as #{@real}"
 		@ua.get "https://www.hatena.ne.jp/login?backurl=http%3A%2F%2Fd.hatena.ne.jp%2F"
 		return if @ua.page.forms.empty?
 
