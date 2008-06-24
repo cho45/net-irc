@@ -23,7 +23,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -39,6 +39,12 @@ it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
+
+### tid=<color>
+
+Apply id to each message for make favorites by CTCP ACTION.
+
+	/me fav id
 
 ### jabber=<jid>:<pass>
 
@@ -122,12 +128,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 
 		@real, *@opts = @opts.name || @real.split(/\s+/)
-		@opts ||= []
+		@opts = @opts.inject({}) {|r,i|
+			key, value = i.split(/=/)
+			r.update(key => value)
+		}
 		@tmap   = TypableMap.new
 
-		jabber = @opts.find {|i| i =~ /^jabber=(\S+?):(\S+)/ }
-		if jabber
-			jid, pass = Regexp.last_match.captures
+		if @opts["jabber"]
+			jid, pass = @opts["jabber"].split(/:/, 2)
 			jabber.replace("jabber=#{jid}:********")
 			if jabber_bot_id
 				begin
@@ -355,7 +363,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if nick == @nick # 自分のときは topic に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
-				message(nick, main_channel, "%s \x0314 [%s]" % [mesg, tid])
+				if @opts["tid"]
+					message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
+				else
+					message(nick, main_channel, "%s" % [mesg, tid])
+				end
 			end
 			@groups.each do |channel, members|
 				if members.include?(nick)
@@ -409,7 +421,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		first = true unless @friends
 		@friends ||= []
 		friends = api("statuses/friends")
-		if first && !@opts.include?("athack")
+		if first && !@opts.key?("athack")
 			@friends = friends
 			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
 			post nil, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
@@ -421,11 +433,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
 			(now_friends - prv_friends).each do |join|
-				join = "@#{join}" if @opts.include?("athack")
+				join = "@#{join}" if @opts.key?("athack")
 				post "#{join}!#{join}@#{api_base.host}", JOIN, main_channel
 			end
 			(prv_friends - now_friends).each do |part|
-				part = "@#{part}" if @opts.include?("athack")
+				part = "@#{part}" if @opts.key?("athack")
 				post "#{part}!#{part}@#{api_base.host}", PART, main_channel, ""
 			end
 			@friends = friends
