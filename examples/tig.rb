@@ -262,7 +262,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 
 			unless res
-				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel" 
+				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when "fav"
 			tid = args[0]
