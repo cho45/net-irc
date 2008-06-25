@@ -78,6 +78,10 @@ install 'xmpp4r-simple' gem.
 
 Be careful for managing password.
 
+### alwaysim
+
+Use IM instead of any APIs (ex. post)
+
 
 ## Licence
 
@@ -172,6 +176,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
+		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
 		@timeline = []
@@ -192,7 +197,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 3
 
-		return if jabber
+		return if @opts["jabber"]
 
 		@check_timeline_thread = Thread.start do
 			loop do
@@ -226,7 +231,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		target, message = *m.params
 		begin
 			if target =~ /^#/
-				if @im && @im.connected? # in jabber mode, using jabber post
+				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
@@ -519,9 +524,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		header = {
 			"User-Agent"               => @user_agent,
 			"Authorization"            => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-			"X-Twitter-Client"         => api_source,
-			"X-Twitter-Client-Version" => server_version,
-			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
+#			"X-Twitter-Client"         => api_source,
+#			"X-Twitter-Client-Version" => server_version,
+#			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
 		}
 		header["If-Modified-Since"]    =  q["since"] if q.key?("since")
 
