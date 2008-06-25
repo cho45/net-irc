@@ -271,10 +271,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		when "fav"
 			tid = args[0]
-			id  = @tmap[tid]
-			if id
+			st  = @tmap[tid]
+			if st
+				id = st["id"] || st["rid"]
 				res = api("favorites/create/#{id}", {})
 				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
+			else
+				post nil, NOTICE, main_channel, "No such id #{tid}"
+			end
+		when "link"
+			tid = args[0]
+			st  = @tmap[tid]
+			if st
+				st["link"] = (api_base + "/#{st["user"]["screen_name"]}/statuses/#{st["id"]}").to_s unless st["link"]
+				post nil, NOTICE, main_channel, st["link"]
 			else
 				post nil, NOTICE, main_channel, "No such id #{tid}"
 			end
@@ -382,7 +392,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
 			mesg = generate_status_message(s)
 
-			tid = @tmap.push(id)
+			tid = @tmap.push(s)
 
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは topic に
@@ -603,7 +613,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			%w|a i u e o|.map {|v| "#{k}#{v}" }
 		}.flatten
 
-		def initialize(size=2)
+		def initialize(size=1)
 			@seq = Roma
 			@map = {}
 			@n   = 0
