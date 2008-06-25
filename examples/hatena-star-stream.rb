@@ -151,10 +151,13 @@ class HatenaStarStream < Net::IRC::Server::Session
 		@ua.get(uri)
 
 		text = ""
-		if uri.fragment
+		case
+		when uri.fragment
 			fragment =  @ua.page.root.at("//*[@name = '#{uri.fragment}']") || @ua.page.root.at("//*[@id = '#{uri.fragment}']")
 
 			text = fragment.inner_text + fragment.following.text + fragment.parent.following.text
+		when uri.to_s =~ %r|^http://h.hatena.ne.jp/[^/]+/\d+|
+			text = @ua.page.root.at("#main .entries .entry .list-body div.body").inner_text
 		else
 			text = @ua.page.root.at("//title").inner_text
 		end
