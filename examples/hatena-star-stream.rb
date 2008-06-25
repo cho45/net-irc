@@ -19,6 +19,7 @@ require "net/irc"
 require "mechanize"
 require "sdbm"
 require "tmpdir"
+require "nkf"
 
 class HatenaStarStream < Net::IRC::Server::Session
 	def server_name
@@ -109,7 +110,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 								true
 							end
 						}.partition {|star| star["quote"].empty? }
-						post server_name, NOTICE, main_channel, entry if s.length + quoted.length > 0
+						post server_name, NOTICE, main_channel, "#{entry} #{title(entry)}" if s.length + quoted.length > 0
 						post server_name, NOTICE, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
 
 						quoted.each do |star|
@@ -143,6 +144,26 @@ class HatenaStarStream < Net::IRC::Server::Session
 			ret.update retrive_stars(entries, n)
 		end
 		ret
+	end
+
+	def title(url)
+		uri = URI(url)
+		@ua.get(uri)
+
+		text = ""
+		if uri.fragment
+			fragment =  @ua.page.root.at("//*[@name = '#{uri.fragment}']") || @ua.page.root.at("//*[@id = '#{uri.fragment}']")
+
+			text = fragment.inner_text + fragment.following.text + fragment.parent.following.text
+		else
+			text = @ua.page.root.at("//title").inner_text
+		end
+		text.gsub!(/\s+/, " ")
+		text.strip!
+		NKF.nkf("-w", text).split(//)[0..30].join
+	rescue Exception => e
+		@log.debug ["title:", e.inspect]
+		""
 	end
 
 	def login
