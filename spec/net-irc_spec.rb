@@ -407,6 +407,10 @@ describe Message::ModeParser do
 			:positive => [[:o, "baz"]],
 			:negative => [[:o, "foo"], [:o, "bar"]],
 		}
+		Message::ModeParser::RFC1459::Channel.parse("#foo +imv foo").should  == {
+			:positive => [[:i, nil], [:m, nil], [:v, "foo"]],
+			:negative => [],
+		}
 
 		Message::ModeParser::RFC1459::User.parse("WIZ -w")[:negative].should   == [[:w, nil]]
 		Message::ModeParser::RFC1459::User.parse("ANGEL +i")[:positive].should == [[:i, nil]]

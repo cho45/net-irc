@@ -431,8 +431,9 @@ class Net::IRC::Message
 
 	class ModeParser
 
-		def initialize(definition)
-			@definition = definition
+		def initialize(require_arg, definition)
+			@require_arg = require_arg.map {|i| i.to_sym }
+			@definition  = definition
 		end
 
 		def parse(arg)
@@ -452,10 +453,15 @@ class Net::IRC::Message
 				when :-
 					current = ret[:negative]
 				else
-					if @definition.key?(c.chr.to_sym)
+					case
+					when @require_arg.include?(sym)
 						current << [sym, params[arg_pos + 2]]
 						arg_pos += 1
+					when @definition.key?(sym)
+						current << [sym, nil]
 					else
+						# fallback, should raise exception
+						# but not for convenience
 						current << [sym, nil]
 					end
 				end
@@ -465,7 +471,7 @@ class Net::IRC::Message
 		end
 
 		module RFC1459
-			Channel  = ModeParser.new({
+			Channel  = ModeParser.new(%w|o l b v k|, {
 				:o => "give/take channel operator privileges",
 				:p => "private channel flag",
 				:s => "select channel flag",
@@ -478,7 +484,7 @@ class Net::IRC::Message
 				:v => "give/take the ability to speak on a moderated channel",
 				:k => "set a channel key (password)",
 			})
-			User    = ModeParser.new({
+			User    = ModeParser.new(%w||, {
 				:i => "marks a users as invisible",
 				:s => "marks a user for receipt of server notices",
 				:w => "user receives wallops",
