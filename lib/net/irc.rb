@@ -429,6 +429,63 @@ class Net::IRC::Message
 		]
 	end
 
+	class ModeParser
+
+		def initialize(definition)
+			@definition = definition
+		end
+
+		def parse(arg)
+			params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(/\s+/)
+
+			ret =  {
+				:positive => [],
+				:negative => [],
+			}
+
+			current = nil, arg_pos = 0
+			params[1].each_byte do |c|
+				sym = c.chr.to_sym
+				case sym
+				when :+
+					current = ret[:positive]
+				when :-
+					current = ret[:negative]
+				else
+					if @definition.key?(c.chr.to_sym)
+						current << [sym, params[arg_pos + 2]]
+						arg_pos += 1
+					else
+						current << [sym, nil]
+					end
+				end
+			end
+
+			ret
+		end
+
+		module RFC1459
+			Channel  = ModeParser.new({
+				:o => "give/take channel operator privileges",
+				:p => "private channel flag",
+				:s => "select channel flag",
+				:i => "invite-only channel flag",
+				:t => "topic settable by channel operator only flag",
+				:n => "no messages to channel from clients on the outside",
+				:m => "moderated channel",
+				:l => "set the user limit to channel",
+				:b => "set a ban mask to keep users out",
+				:v => "give/take the ability to speak on a moderated channel",
+				:k => "set a channel key (password)",
+			})
+			User    = ModeParser.new({
+				:i => "marks a users as invisible",
+				:s => "marks a user for receipt of server notices",
+				:w => "user receives wallops",
+				:o => "operator flag",
+			})
+		end
+	end
 end # Message
 
 class Net::IRC::Client
@@ -519,17 +576,17 @@ class Net::IRC::Client
 
 				case mode
 				when "@" # channel operator
-					@channels[channel][:modes] << ["o", nick]
+					@channels[channel][:modes] << [:o, nick]
 				when "+" # voiced (under moderating mode)
-					@channels[channel][:modes] << ["v", nick]
+					@channels[channel][:modes] << [:v, nick]
 				end
 			end
 
 			case type
 			when "@" # secret
-				@channels[channel][:modes] << ["s", nil]
+				@channels[channel][:modes] << [:s, nil]
 			when "*" # private
-				@channels[channel][:modes] << ["p", nil]
+				@channels[channel][:modes] << [:p, nil]
 			when "=" # public
 			end
 
@@ -607,36 +664,17 @@ class Net::IRC::Client
 		@channels.synchronize do
 			init_channel(channel)
 
-			positive_mode = []
-			negative_mode = []
-
-			mode = positive_mode
-			arg_pos = 0
-			m[1].each_byte do |c|
-				case c
-				when ?+
-					mode = positive_mode
-				when ?-
-					mode = negative_mode
-				when ?o, ?v, ?k, ?l, ?b, ?e, ?I
-					mode << [c.chr, m[arg_pos + 2]]
-					arg_pos += 1
-				else
-					mode << [c.chr, nil]
-				end
-			end
-			mode = nil
-
-			negative_mode.each do |m|
+			mode = Message::ModeParser::RFC1459::Channel.parse(m)
+			mode[:negative].each do |m|
 				@channels[channel][:modes].delete(m)
 			end
 
-			positive_mode.each do |m|
+			mode[:positive].each do |m|
 				@channels[channel][:modes] << m
 			end
 
 			@channels[channel][:modes].uniq!
-			[negative_mode, positive_mode]
+			[mode[:negative], mode[:positive]]
 		end
 	end
 
