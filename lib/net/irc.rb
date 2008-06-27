@@ -710,7 +710,7 @@ class Net::IRC::Client
 
 	# Post message to server.
 	#
-	#     include Net::IRC::Constans
+	#     include Net::IRC::Constants
 	#     post PRIVMSG, "#channel", "foobar"
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
@@ -723,12 +723,16 @@ class Net::IRC::Client
 end # Client
 
 class Net::IRC::Server
+	# Server global state for accessing Server::Session
+	attr_accessor :state
+
 	def initialize(host, port, session_class, opts={})
 		@host          = host
 		@port          = port
 		@session_class = session_class
 		@opts          = OpenStruct.new(opts)
 		@sessions      = []
+		@state         = {}
 	end
 
 	# Start server loop.
