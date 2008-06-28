@@ -95,67 +95,6 @@ class Net::IRC::Message
 		]
 	end
 
-	class ModeParser
-
-		def initialize(require_arg, definition)
-			@require_arg = require_arg.map {|i| i.to_sym }
-			@definition  = definition
-		end
-
-		def parse(arg)
-			params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(/\s+/)
-
-			ret =  {
-				:positive => [],
-				:negative => [],
-			}
-
-			current = nil, arg_pos = 0
-			params[1].each_byte do |c|
-				sym = c.chr.to_sym
-				case sym
-				when :+
-					current = ret[:positive]
-				when :-
-					current = ret[:negative]
-				else
-					case
-					when @require_arg.include?(sym)
-						current << [sym, params[arg_pos + 2]]
-						arg_pos += 1
-					when @definition.key?(sym)
-						current << [sym, nil]
-					else
-						# fallback, should raise exception
-						# but not for convenience
-						current << [sym, nil]
-					end
-				end
-			end
-
-			ret
-		end
-
-		module RFC1459
-			Channel  = ModeParser.new(%w|o l b v k|, {
-				:o => "give/take channel operator privileges",
-				:p => "private channel flag",
-				:s => "select channel flag",
-				:i => "invite-only channel flag",
-				:t => "topic settable by channel operator only flag",
-				:n => "no messages to channel from clients on the outside",
-				:m => "moderated channel",
-				:l => "set the user limit to channel",
-				:b => "set a ban mask to keep users out",
-				:v => "give/take the ability to speak on a moderated channel",
-				:k => "set a channel key (password)",
-			})
-			User    = ModeParser.new(%w||, {
-				:i => "marks a users as invisible",
-				:s => "marks a user for receipt of server notices",
-				:w => "user receives wallops",
-				:o => "operator flag",
-			})
-		end
-	end
+	autoload :ModeParser, "net/irc/message/modeparser"
 end # Message
+
