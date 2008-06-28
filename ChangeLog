@@ -1,3 +1,10 @@
+2008-06-28 cho45
+
+	* [interface]:
+		Change mode character to symbol.
+	* [new]:
+		Seperate each class to some files.
+
 2008-06-14 cho45
 
 	* [bug]:

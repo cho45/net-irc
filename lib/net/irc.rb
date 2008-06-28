@@ -12,9 +12,9 @@ module Net::IRC
 	VERSION = "0.0.3"
 	class IRCException < StandardError; end
 
-	autoload :PATTERN,   "net/irc/pattern"
-	autoload :Constants, "net/irc/constants"
-	autoload :COMMANDS,  "net/irc/constants"
+	require "net/irc/constants"
+	require "net/irc/pattern"
+
 	autoload :Message,   "net/irc/message"
 	autoload :Client,    "net/irc/client"
 	autoload :Server,    "net/irc/server"

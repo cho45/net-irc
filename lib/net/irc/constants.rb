@@ -209,6 +209,6 @@ module Net::IRC::Constants # :nodoc:
 end
 
 Net::IRC::COMMANDS = Net::IRC::Constants.constants.inject({}) {|r,i| # :nodoc:
-	r.update(Constants.const_get(i) => i)
+	r.update(Net::IRC::Constants.const_get(i) => i)
 }
 
