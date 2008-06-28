@@ -542,6 +542,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		q["source"] ||= api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
+		p q
 
 		uri = api_base.dup
 		uri.path  = path.sub(%r{^/*}, "/") << ".json"
@@ -571,7 +572,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			[]
 		when Net::HTTPBadRequest # 400
 			# exceeded the rate limitation
-			raise ApiFailed, "#{ret.code}: #{ret["error"]}"
+			raise ApiFailed, "#{ret.code}: #{ret.message}"
 		else
 			raise ApiFailed, "Server Returned #{ret.code} #{ret.message}"
 		end
