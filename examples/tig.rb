@@ -23,7 +23,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1:6 replies
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -61,7 +61,7 @@ Apply id to each message for make favorites by CTCP ACTION.
 	10 => teal
 	11 => lightcyan    cyan aqua
 	12 => lightblue    royal
-	13 => pink         lightpurple  fuchsia
+	13 => pink         lightpurple fuchsia
 	14 => grey
 	15 => lightgrey    silver
 
@@ -72,7 +72,7 @@ If `jabber=<jid>:<pass>` option specified,
 use jabber to get friends timeline.
 
 You must setup im notifing settings in the site and
-install 'xmpp4r-simple' gem.
+install "xmpp4r-simple" gem.
 
 	$ sudo gem install xmpp4r-simple
 
@@ -82,8 +82,13 @@ Be careful for managing password.
 
 Use IM instead of any APIs (ex. post)
 
+### ratio=<timeline>:<friends>[:<replies>]
 
-## Licence
+### replies[=<ratio>]
+
+### checkrls[=<interval seconds>]
+
+## License
 
 Ruby's by cho45
 
@@ -134,6 +139,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		"twitter@twitter.com"
 	end
 
+	def hourly_limit
+		20
+	end
+
 	class ApiFailed < StandardError; end
 
 	def initialize(*args)
@@ -156,10 +165,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			key, value = i.split(/=/)
 			r.update(key => value)
 		}
-		@tmap   = TypableMap.new
+		@tmap = TypableMap.new
 
 		if @opts["jabber"]
-			jid, pass = @opts["jabber"].split(/:/, 2)
+			jid, pass = @opts["jabber"].split(":", 2)
 			@opts["jabber"].replace("jabber=#{jid}:********")
 			if jabber_bot_id
 				begin
@@ -167,7 +176,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					start_jabber(jid, pass)
 				rescue LoadError
 					log "Failed to start Jabber."
-					log "Installl 'xmpp4r-simple' gem or check your id/pass."
+					log 'Installl "xmpp4r-simple" gem or check your id/pass.'
 					finish
 				end
 			else
@@ -178,6 +187,32 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
+
+		@hourly_limit = hourly_limit
+		@check_rate_limit_thread = Thread.start do
+			loop do
+				begin
+					check_rate_limit
+				rescue ApiFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep @opts["checkrls"] || 3600 # 1 time / hour
+			end
+		end
+		sleep 5
+
+		timeline_ratio, friends_ratio, replies_ratio =
+			(@opts["ratio"] || "10:3").split(":", 3).map {|ratio| ratio.to_i }
+		footing = (timeline_ratio + friends_ratio).to_f
+		if @opts.key?("replies")
+			replies_ratio ||= (@opts["replies"] || 5).to_i
+			footing += replies_ratio
+		end
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -192,13 +227,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 10 * 60 # 6 times/hour
+				sleep freq(friends_ratio / footing)
 			end
 		end
-		sleep 3
 
 		return if @opts["jabber"]
 
+		sleep 3
 		@check_timeline_thread = Thread.start do
 			loop do
 				begin
@@ -212,16 +247,37 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 180 # 20 times/hour
+				sleep freq(timeline_ratio / footing)
+			end
+		end
+
+		return unless @opts.key?("replies")
+
+		sleep 10
+		@check_replies_thread = Thread.start do
+			loop do
+				begin
+					check_replies
+				rescue ApiFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep freq(replies_ratio / footing)
 			end
 		end
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill  rescue nil
-		@check_timeline_thread.kill rescue nil
-		@im_thread.kill             rescue nil
-		@im.disconnect              rescue nil
+		@check_friends_thread.kill    rescue nil
+		@check_replies_thread.kill    rescue nil
+		@check_timeline_thread.kill   rescue nil
+		@check_rate_limit_thread.kill rescue nil
+		@im_thread.kill               rescue nil
+		@im.disconnect                rescue nil
 	end
 
 	def on_privmsg(m)
@@ -261,7 +317,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when "list"
 			nick = args[0]
 			@log.debug([ nick, message ])
-			res = api('statuses/user_timeline', { 'id' => nick }).reverse_each do |s|
+			res = api("statuses/user_timeline", { "id" => nick }).reverse_each do |s|
 				@log.debug(s)
 				post nick, NOTICE, main_channel, "#{generate_status_message(s)}"
 			end
@@ -420,24 +476,49 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mesg = s["text"]
 		@log.debug(mesg)
 
-		# added @user in no use @user reply message ( Wassr only )
-		if s.has_key?('reply_status_url') and s['reply_status_url'] and s['text'] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s['reply_status_url'])
+		# added @user in no use @user reply message (Wassr only)
+		if s.has_key?("reply_status_url") and s["reply_status_url"] and s["text"] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s["reply_status_url"])
 			reply_user_id = $1
 			mesg = "@#{reply_user_id} #{mesg}"
 		end
-		# display area name(Wassr only)
-		if s.has_key?('areaname') and s["areaname"]
-			mesg += " L: #{s['areaname']}"
+		# display area name (Wassr only)
+		if s.has_key?("areaname") and s["areaname"]
+			mesg += " L: #{s["areaname"]}"
 		end
-		# display photo url(Wassr only)
-		if s.has_key?('photo_url') and s["photo_url"]
-			mesg += " #{s['photo_url']}"
+		# display photo URL (Wassr only)
+		if s.has_key?("photo_url") and s["photo_url"]
+			mesg += " #{s["photo_url"]}"
 		end
 
 		# time = Time.parse(s["created_at"]) rescue Time.now
 		m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
 		mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
 		mesg
+	end
+
+	def check_replies
+		@prev_time_r ||= Time.now
+		api("statuses/replies").reverse_each do |s|
+			id = s["id"] || s["rid"]
+			next if id.nil? || @timeline.include?(id)
+			time = Time.parse(s["created_at"]) rescue next
+			next if time < @prev_time_r
+			@timeline << id
+			nick = s["user_login_id"] || s["user"]["screen_name"]
+			mesg = generate_status_message(s)
+
+			tid = @tmap.push(s)
+
+			@log.debug [id, nick, mesg]
+			if @opts["tid"]
+				message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
+			else
+				message(nick, main_channel, "%s" % mesg)
+			end
+		end
+		@log.debug "@timeline.size = #{@timeline.size}"
+		@timeline    = @timeline.last(100)
+		@prev_time_r = Time.now
 	end
 
 	def check_direct_messages
@@ -464,7 +545,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
 
-			# twitter api bug?
+			# Twitter api bug?
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
 			(now_friends - prv_friends).each do |join|
@@ -477,6 +558,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 			@friends = friends
 		end
+	end
+
+	def check_rate_limit
+		@log.debug rate_limit = api("account/rate_limit_status")
+		if @hourly_limit != rate_limit["hourly_limit"]
+			log "Rate limit changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
+			@log.info "Rate limit changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
+			@hourly_limit = rate_limit["hourly_limit"]
+		end
+		# rate_limit["remaining_hits"] < 1
+		# rate_limit["reset_time_in_seconds"] - Time.now.to_i
+	end
+
+	def freq(ratio)
+		ret = 3600 / (@hourly_limit * ratio).round
+		@log.debug "Frequency: #{ret}"
+		ret
 	end
 
 	def start_jabber(jid, pass)
@@ -531,18 +629,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def api(path, q={})
 		ret     = {}
-		header = {
-			"User-Agent"               => @user_agent,
-			"Authorization"            => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-#			"X-Twitter-Client"         => api_source,
-#			"X-Twitter-Client-Version" => server_version,
-#			"X-Twitter-Client-URL"     => "http://coderepos.org/share/browser/lang/ruby/misc/tig.rb",
+		headers = {
+			"User-Agent"    => @user_agent,
+			"Authorization" => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
 		}
-		header["If-Modified-Since"]    =  q["since"] if q.key?("since")
+		headers["If-Modified-Since"] = q["since"] if q.key?("since")
 
 		q["source"] ||= api_source
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
-		p q
 
 		uri = api_base.dup
 		uri.path  = path.sub(%r{^/*}, "/") << ".json"
@@ -557,9 +651,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		http.start do
 			case uri.path
 			when "/statuses/update.json", "/direct_messages/new.json"
-				ret = http.post(uri.request_uri, q, header)
+				ret = http.post(uri.request_uri, q, headers)
 			else
-				ret = http.get(uri.request_uri, header)
+				ret = http.get(uri.request_uri, headers)
 			end
 		end
 
@@ -610,14 +704,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TypableMap < Hash
-		Roma = "a i u e o k g s z t d n h b p m y r w j v l q".split(/ /).map {|k|
-			%w|a i u e o|.map {|v| "#{k}#{v}" }
+		Roma = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
+			case
+			when consonant.size > 1, consonant == "y"
+				%w|a u o|
+			when consonant == "q"
+				%w|a i e o|
+			else
+				%w|a i u e o|
+			end.map {|vowel| "#{consonant}#{vowel}" }
 		}.flatten
 
 		def initialize(size=1)
-			@seq = Roma
-			@map = {}
-			@n   = 0
+			@seq  = Roma
+			@map  = {}
+			@n    = 0
 			@size = size
 		end
 
@@ -664,7 +765,7 @@ if __FILE__ == $0
 
 	OptionParser.new do |parser|
 		parser.instance_eval do
-			self.banner  = <<-EOB.gsub(/^\t+/, "")
+			self.banner = <<-EOB.gsub(/^\t+/, "")
 				Usage: #{$0} [opts]
 
 			EOB

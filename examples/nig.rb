@@ -73,6 +73,10 @@ class NowaIrcGateway < TwitterIrcGateway
 	def jabber_bot_id
 		nil
 	end
+
+	def hourly_limit
+		30
+	end
 end
 
 if __FILE__ == $0

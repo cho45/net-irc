@@ -86,6 +86,10 @@ class WassrIrcGateway < TwitterIrcGateway
 	def jabber_bot_id
 		"wassr-bot@wassr.jp"
 	end
+
+	def hourly_limit
+		30
+	end
 end
 
 if __FILE__ == $0
