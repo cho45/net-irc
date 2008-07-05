@@ -8,7 +8,7 @@ Ruby version of TwitterIrcGateway
 
 ## Launch
 
-	$ ruby tig.rb # daemonized
+	$ ruby tig.rb
 
 If you want to help:
 
@@ -23,7 +23,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1:6 replies
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1 replies=6
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -34,7 +34,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 If `athack` client option specified,
 all nick in join message is leading with @.
 
-So if you complemente nicks (ex. Irssi),
+So if you complemente nicks (e.g. Irssi),
 it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
@@ -80,9 +80,9 @@ Be careful for managing password.
 
 ### alwaysim
 
-Use IM instead of any APIs (ex. post)
+Use IM instead of any APIs (e.g. post)
 
-### ratio=<timeline>:<friends>[:<replies>]
+### ratio=<timeline>:<friends>
 
 ### replies[=<ratio>]
 
@@ -162,7 +162,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts = @opts.inject({}) {|r,i|
-			key, value = i.split(/=/)
+			key, value = i.split("=")
 			r.update(key => value)
 		}
 		@tmap = TypableMap.new
@@ -206,7 +206,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 5
 
-		timeline_ratio, friends_ratio = (@opts["ratio"] || "10:3").split(":", 2).map {|ratio| ratio.to_i }
+		timeline_ratio, friends_ratio = (@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_i }
 		footing = (timeline_ratio + friends_ratio).to_f
 
 		if @opts.key?("replies")
@@ -297,7 +297,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
-			raise ApiFailed, "api failed" unless ret
+			raise ApiFailed, "API failed" unless ret
 			log "Status Updated"
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
@@ -531,7 +531,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
 
-			# Twitter api bug?
+			# Twitter API bug?
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
 			(now_friends - prv_friends).each do |join|
@@ -791,23 +791,23 @@ if __FILE__ == $0
 	opts[:logger] = Logger.new(opts[:log], "daily")
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
-	def daemonize(foreground=false)
-		trap("SIGINT")  { exit! 0 }
-		trap("SIGTERM") { exit! 0 }
-		trap("SIGHUP")  { exit! 0 }
-		return yield if $DEBUG || foreground
-		Process.fork do
-			Process.setsid
-			Dir.chdir "/"
-			File.open("/dev/null") {|f|
-				STDIN.reopen  f
-				STDOUT.reopen f
-				STDERR.reopen f
-			}
-			yield
-		end
-		exit! 0
-	end
+#	def daemonize(foreground=false)
+#		trap("SIGINT")  { exit! 0 }
+#		trap("SIGTERM") { exit! 0 }
+#		trap("SIGHUP")  { exit! 0 }
+#		return yield if $DEBUG || foreground
+#		Process.fork do
+#			Process.setsid
+#			Dir.chdir "/"
+#			File.open("/dev/null") {|f|
+#				STDIN.reopen  f
+#				STDOUT.reopen f
+#				STDERR.reopen f
+#			}
+#			yield
+#		end
+#		exit! 0
+#	end
 
 #	daemonize(opts[:debug] || opts[:foreground]) do
 		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start

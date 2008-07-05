@@ -20,8 +20,8 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	wassr {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1:6 replies
-		password: password on wassr
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=10:3:5
+		password: password on Wassr
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -31,7 +31,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 If `athack` client option specified,
 all nick in join message is leading with @.
 
-So if you complemente nicks (ex. Irssi),
+So if you complemente nicks (e.g. Irssi),
 it's good for Twitter like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
@@ -77,13 +77,9 @@ Be careful for managing password.
 
 ### alwaysim
 
-Use IM instead of any APIs (ex. post)
+Use IM instead of any APIs (e.g. post)
 
-### ratio=<timeline>:<friends>[:<replies>]
-
-### replies[=<ratio>]
-
-### checkrls[=<interval seconds>]
+### ratio=<timeline>:<friends>:<channel>
 
 ## License
 
@@ -156,7 +152,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts = @opts.inject({}) {|r,i|
-			key, value = i.split(/=/)
+			key, value = i.split("=")
 			r.update(key => value)
 		}
 		@tmap = TypableMap.new
@@ -182,13 +178,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		timeline_ratio, friends_ratio, channel_ratio = (@opts["ratio"] || "10:3:5").split(":", 3).map {|ratio| ratio.to_i }
+		timeline_ratio, friends_ratio, channel_ratio = (@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_i }
 		footing = (timeline_ratio + friends_ratio + channel_ratio).to_f
-
-		if @opts.key?("replies")
-			replies_ratio ||= (@opts["replies"] || 5).to_i
-			footing += replies_ratio
-		end
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -245,34 +236,14 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				sleep freq(channel_ratio / footing)
 			end
 		end
-
-		return unless @opts.key?("replies")
-
-		@check_replies_thread = Thread.start do
-			sleep 10
-			loop do
-				begin
-					check_replies
-				rescue ApiFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep freq(replies_ratio / footing)
-			end
-		end
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill    rescue nil
-		@check_replies_thread.kill    rescue nil
-		@check_timeline_thread.kill   rescue nil
-		@check_channel_thread.kill    rescue nil
-		@im_thread.kill               rescue nil
-		@im.disconnect                rescue nil
+		@check_friends_thread.kill  rescue nil
+		@check_timeline_thread.kill rescue nil
+		@check_channel_thread.kill  rescue nil
+		@im_thread.kill             rescue nil
+		@im.disconnect              rescue nil
 	end
 
 	def on_privmsg(m)
@@ -298,7 +269,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
-			raise ApiFailed, "api failed" unless ret
+			raise ApiFailed, "API failed" unless ret
 			log "Status Updated" unless @im && @im.connected?
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
@@ -482,31 +453,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		mesg
 	end
 
-	def check_replies
-		@prev_time_r ||= Time.now
-		api("statuses/replies").reverse_each do |s|
-			id = s["id"] || s["rid"]
-			next if id.nil? || @timeline.include?(id)
-			time = Time.parse(s["created_at"]) rescue next
-			next if time < @prev_time_r
-			@timeline << id
-			nick = s["user_login_id"] || s["user"]["screen_name"]
-			mesg = generate_status_message(s)
-
-			tid = @tmap.push(s)
-
-			@log.debug [id, nick, mesg]
-			if @opts["tid"]
-				message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
-			else
-				message(nick, main_channel, "%s" % mesg)
-			end
-		end
-		@log.debug "@timeline.size = #{@timeline.size}"
-		@timeline    = @timeline.last(100)
-		@prev_time_r = Time.now
-	end
-
 	def check_direct_messages
 		@prev_time_d ||= Time.now
 		api("direct_messages", {"since" => @prev_time_d.httpdate}).reverse_each do |s|
@@ -531,7 +477,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
 
-			# Twitter api bug?
+			# Twitter API bug?
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
 			(now_friends - prv_friends).each do |join|
@@ -562,7 +508,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
-							# Wassr   -> 'nick(id): msg'
+							# Wassr -> 'nick(id): msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
@@ -766,23 +712,23 @@ if __FILE__ == $0
 	opts[:logger] = Logger.new(opts[:log], "daily")
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
-	def daemonize(foreground=false)
-		trap("SIGINT")  { exit! 0 }
-		trap("SIGTERM") { exit! 0 }
-		trap("SIGHUP")  { exit! 0 }
-		return yield if $DEBUG || foreground
-		Process.fork do
-			Process.setsid
-			Dir.chdir "/"
-			File.open("/dev/null") {|f|
-				STDIN.reopen  f
-				STDOUT.reopen f
-				STDERR.reopen f
-			}
-			yield
-		end
-		exit! 0
-	end
+#	def daemonize(foreground=false)
+#		trap("SIGINT")  { exit! 0 }
+#		trap("SIGTERM") { exit! 0 }
+#		trap("SIGHUP")  { exit! 0 }
+#		return yield if $DEBUG || foreground
+#		Process.fork do
+#			Process.setsid
+#			Dir.chdir "/"
+#			File.open("/dev/null") {|f|
+#				STDIN.reopen  f
+#				STDOUT.reopen f
+#				STDERR.reopen f
+#			}
+#			yield
+#		end
+#		exit! 0
+#	end
 
 #	daemonize(opts[:debug] || opts[:foreground]) do
 		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
