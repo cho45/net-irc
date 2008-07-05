@@ -164,8 +164,8 @@ if __FILE__ == $0
 		exit! 0
 	end
 
-	daemonize(opts[:debug] || opts[:foreground]) do
+#	daemonize(opts[:debug] || opts[:foreground]) do
 		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
-	end
+#	end
 end
 
