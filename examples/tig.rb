@@ -206,9 +206,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 5
 
-		timeline_ratio, friends_ratio, replies_ratio =
-			(@opts["ratio"] || "10:3").split(":", 3).map {|ratio| ratio.to_i }
+		timeline_ratio, friends_ratio = (@opts["ratio"] || "10:3").split(":", 2).map {|ratio| ratio.to_i }
 		footing = (timeline_ratio + friends_ratio).to_f
+
 		if @opts.key?("replies")
 			replies_ratio ||= (@opts["replies"] || 5).to_i
 			footing += replies_ratio
