@@ -288,7 +288,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, channel, untinyurl(message)
 				else
-					if channel == main_channel
+					if "##{channel}" == main_channel
 						ret = api("statuses/update", {"status" => message})
 					else
 						ret = api("channel_message/update", {"name_en" => channel, "body" => message})
