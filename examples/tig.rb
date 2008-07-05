@@ -445,7 +445,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id = s["id"] || s["rid"]
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
-			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
+			nick = s["user"]["screen_name"]
 			mesg = generate_status_message(s)
 
 			tid = @tmap.push(s)
@@ -475,20 +475,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		s = status
 		mesg = s["text"]
 		@log.debug(mesg)
-
-		# added @user in no use @user reply message (Wassr only)
-		if s.has_key?("reply_status_url") and s["reply_status_url"] and s["text"] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s["reply_status_url"])
-			reply_user_id = $1
-			mesg = "@#{reply_user_id} #{mesg}"
-		end
-		# display area name (Wassr only)
-		if s.has_key?("areaname") and s["areaname"]
-			mesg += " L: #{s["areaname"]}"
-		end
-		# display photo URL (Wassr only)
-		if s.has_key?("photo_url") and s["photo_url"]
-			mesg += " #{s["photo_url"]}"
-		end
 
 		# time = Time.parse(s["created_at"]) rescue Time.now
 		m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
@@ -588,7 +574,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
 							# Twitter -> 'id: msg'
-							# Wassr   -> 'nick(id): msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
