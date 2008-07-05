@@ -394,7 +394,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			id = s["id"] || s["rid"]
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
-			nick = s["user_login_id"] || s["user"]["screen_name"] # it may be better to use user_login_id in Wassr
+			nick = s["user_login_id"]
 			mesg = generate_status_message(s)
 
 			tid = @tmap.push(s)
