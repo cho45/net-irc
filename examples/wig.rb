@@ -712,7 +712,7 @@ if __FILE__ == $0
 	require "optparse"
 
 	opts = {
-		:port  => 16668,
+		:port  => 16670,
 		:host  => "localhost",
 		:log   => nil,
 		:debug => false,
