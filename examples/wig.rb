@@ -107,6 +107,7 @@ require "logger"
 require "yaml"
 require "pathname"
 require "cgi"
+require "digest/md5"
 
 Net::HTTP.version_1_2
 
@@ -143,8 +144,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@groups     = {}
-		@channels   = [] # joined channels (groups)
+		@channels   = {}
 		@user_agent = "#{self.class}/#{server_version} (wig.rb)"
 		@map        = nil
 	end
@@ -182,9 +182,9 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		timeline_ratio, friends_ratio, replies_ratio =
-			(@opts["ratio"] || "10:3").split(":", 3).map {|ratio| ratio.to_i }
-		footing = (timeline_ratio + friends_ratio).to_f
+		timeline_ratio, friends_ratio, channel_ratio = (@opts["ratio"] || "10:3:5").split(":", 3).map {|ratio| ratio.to_i }
+		footing = (timeline_ratio + friends_ratio + channel_ratio).to_f
+
 		if @opts.key?("replies")
 			replies_ratio ||= (@opts["replies"] || 5).to_i
 			footing += replies_ratio
@@ -209,8 +209,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		return if @opts["jabber"]
 
-		sleep 3
 		@check_timeline_thread = Thread.start do
+			sleep 3
 			loop do
 				begin
 					check_timeline
@@ -227,10 +227,29 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
+		@check_channel_thread = Thread.start do
+			sleep 5
+			Thread.abort_on_exception= true
+			loop do
+				begin
+					check_channel
+					# check_direct_messages
+				rescue ApiFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep freq(channel_ratio / footing)
+			end
+		end
+
 		return unless @opts.key?("replies")
 
-		sleep 10
 		@check_replies_thread = Thread.start do
+			sleep 10
 			loop do
 				begin
 					check_replies
@@ -251,6 +270,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		@check_friends_thread.kill    rescue nil
 		@check_replies_thread.kill    rescue nil
 		@check_timeline_thread.kill   rescue nil
+		@check_channel_thread.kill    rescue nil
 		@im_thread.kill               rescue nil
 		@im.disconnect                rescue nil
 	end
@@ -344,18 +364,20 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_join(m)
-		# TODO
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
 			next if channel == main_channel
+			@channels[channel] = {
+				:read => []
+			}
 			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
 		end
 	end
 
 	def on_part(m)
-		# TODO
 		channel = m.params[0]
 		return if channel == main_channel
+		@channels.delete(channel)
 		post "#{@nick}!#{@nick}@#{api_base.host}", PART, channel
 	end
 
@@ -409,15 +431,30 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					message(nick, main_channel, "%s" % [mesg, tid])
 				end
 			end
-			@groups.each do |channel, members|
-				if members.include?(nick)
-					message(nick, channel, "%s [%s]" % [mesg, tid])
-				end
-			end
 		end
 		@log.debug "@timeline.size = #{@timeline.size}"
 		@timeline  = @timeline.last(100)
 		@prev_time = Time.now
+	end
+
+	def check_channel
+		@channels.keys.each do |channel|
+			@log.debug "getting channel -> #{channel}..."
+			api("channel_message/list", { "name_en" => channel.sub(/^#/, "") }).reverse_each do |s|
+				id = Digest::MD5.hexdigest(s["user"]["login_id"] + s["body"])
+				next @channels[channel][:read].include?(id)
+				@channels[channel][:read] << id
+				nick = s["user"]["login_id"]
+				mesg = s["body"]
+
+				if nick == @nick
+					# TODO
+				else
+					message(nick, channel, mesg)
+				end
+			end
+			@channels[channel][:read] = @channels[channel][:read].last(100)
+		end
 	end
 
 	def generate_status_message(status)
