@@ -571,7 +571,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 								case
 								when nick == "投稿完了"
 									log "#{nick}: #{body}"
-								when nick == "チャンネル投稿完了!"
+								when nick == "チャンネル投稿完了"
 									log "#{nick}: #{body}"
 								when body =~ /^#([a-z_]+)\s+(.+)$/i
 									# channel message or not
