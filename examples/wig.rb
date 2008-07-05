@@ -99,7 +99,6 @@ $KCODE = "u" # json use this
 require "rubygems"
 require "net/irc"
 require "net/http"
-require "net/https"
 require "uri"
 require "json"
 require "socket"
@@ -136,6 +135,10 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		"wassr-bot@wassr.jp"
 	end
 
+	def hourly_limit
+		60
+	end
+
 	class ApiFailed < StandardError; end
 
 	def initialize(*args)
@@ -143,9 +146,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		@groups     = {}
 		@channels   = [] # joined channels (groups)
 		@user_agent = "#{self.class}/#{server_version} (wig.rb)"
-		@config     = Pathname.new(ENV["HOME"]) + ".wig"
 		@map        = nil
-		load_config
 	end
 
 	def on_user(m)
@@ -272,7 +273,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
 			raise ApiFailed, "api failed" unless ret
-			log "Status Updated"
+			log "Status Updated" unless @im && @im.connected?
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
 			if retry_count > 0
@@ -361,54 +362,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			post nil, RPL_ENDOFWHO, @nick, channel
 		else
 			post nil, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
-		end
-	end
-
-	def on_join(m)
-		channels = m.params[0].split(/\s*,\s*/)
-		channels.each do |channel|
-			next if channel == main_channel
-
-			@channels << channel
-			@channels.uniq!
-			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
-			post server_name, MODE, channel, "+o", @nick
-			save_config
-		end
-	end
-
-	def on_part(m)
-		channel = m.params[0]
-		return if channel == main_channel
-
-		@channels.delete(channel)
-		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
-	end
-
-	def on_invite(m)
-		nick, channel = *m.params
-		return if channel == main_channel
-
-		if (@friends || []).find {|i| i["screen_name"] == nick }
-			((@groups[channel] ||= []) << nick).uniq!
-			post "#{nick}!#{nick}@#{api_base.host}", JOIN, channel
-			post server_name, MODE, channel, "+o", nick
-			save_config
-		else
-			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
-		end
-	end
-
-	def on_kick(m)
-		channel, nick, mes = *m.params
-		return if channel == main_channel
-
-		if (@friends || []).find {|i| i["screen_name"] == nick }
-			(@groups[channel] ||= []).delete(nick)
-			post nick, PART, channel
-			save_config
-		else
-			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
 		end
 	end
 
@@ -534,6 +487,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def freq(ratio)
+		ret = 3600 / (hourly_limit * ratio).round
+		@log.debug "Frequency: #{ret}"
+		ret
+	end
+
 	def start_jabber(jid, pass)
 		@log.info "Logging-in with #{jid} -> jabber_bot_id: #{jabber_bot_id}"
 		@im = Jabber::Simple.new(jid, pass)
@@ -564,25 +523,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def save_config
-		config = {
-			:channels => @channels,
-			:groups   => @groups,
-		}
-		@config.open("w") do |f|
-			YAML.dump(config, f)
-		end
-	end
-
-	def load_config
-		@config.open do |f|
-			config = YAML.load(f)
-			@channels = config[:channels]
-			@groups   = config[:groups]
-		end
-	rescue Errno::ENOENT
-	end
-
 	def api(path, q={})
 		ret     = {}
 		headers = {
@@ -599,12 +539,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		uri.query = q
 
 		@log.debug uri.inspect
-		http = Net::HTTP.new(uri.host, uri.port)
-		if uri.scheme == "https"
-			http.use_ssl     = true
-			http.verify_mode = OpenSSL::SSL::VERIFY_NONE # FIXME
-		end
-		http.start do
+		Net::HTTP.start(uri.host, uri.port) do |http|
 			case uri.path
 			when "/statuses/update.json", "/direct_messages/new.json"
 				ret = http.post(uri.request_uri, q, headers)
@@ -631,9 +566,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def message(sender, target, str)
-#		str.gsub!(/&#(x)?([0-9a-f]+);/i) do
-#			[$1 ? $2.hex : $2.to_i].pack("U")
-#		end
 		str    = untinyurl(str)
 		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
