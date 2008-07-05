@@ -3,9 +3,6 @@
 
 # wig.rb
 
-Ruby version of TwitterIrcGateway
-( http://www.misuzilla.org/dist/net/twitterircgateway/ )
-
 ## Launch
 
 	$ ruby wig.rb
@@ -20,11 +17,11 @@ Options specified by after irc realname.
 
 Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 
-	twitter {
+	wassr {
 		host: localhost
 		port: 16668
 		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1:6 replies
-		password: password on Twitter
+		password: password on wassr
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -547,7 +544,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
-							# Twitter -> 'id: msg'
 							# Wassr   -> 'nick(id): msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
@@ -785,7 +781,7 @@ if __FILE__ == $0
 	end
 
 #	daemonize(opts[:debug] || opts[:foreground]) do
-		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start
+		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
 #	end
 end
 
