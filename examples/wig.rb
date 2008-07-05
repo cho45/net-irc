@@ -261,12 +261,18 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		ret = nil
 		target, message = *m.params
 		begin
-			if target =~ /^#/
+			if target =~ /^#(.+)/
+				channel = Regexp.last_match[1]
 				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
+					message = "##{channel} #{message}" unless channel == main_channel
 					ret = @im.deliver(jabber_bot_id, message)
-					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
+					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, channel, untinyurl(message)
 				else
-					ret = api("statuses/update", {"status" => message})
+					if channel == main_channel
+						ret = api("statuses/update", {"status" => message})
+					else
+						ret = api("channel_message/update", {"name_en" => channel, "body" => message})
+					end
 				end
 			else
 				# direct message
@@ -335,6 +341,22 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		else
 			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
+	end
+
+	def on_join(m)
+		# TODO
+		channels = m.params[0].split(/\s*,\s*/)
+		channels.each do |channel|
+			next if channel == main_channel
+			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+		end
+	end
+
+	def on_part(m)
+		# TODO
+		channel = m.params[0]
+		return if channel == main_channel
+		post "#{@nick}!#{@nick}@#{api_base.host}", PART, channel
 	end
 
 	def on_who(m)
@@ -508,7 +530,13 @@ class WassrIrcGateway < Net::IRC::Server::Session
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
 								body = CGI.unescapeHTML(body)
-								message(id || nick, main_channel, body)
+
+								# channel message or not
+								if body =~ /^#([a-z_]+)\s+(.+)$/i
+									message(id || nick, Regexp.last_match[1], Regexp.last_match[2])
+								else
+									message(id || nick, main_channel, body)
+								end
 							end
 						end
 					end
@@ -523,30 +551,32 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def api(path, q={})
-		ret     = {}
-		headers = {
-			"User-Agent"    => @user_agent,
-			"Authorization" => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-		}
-		headers["If-Modified-Since"] = q["since"] if q.key?("since")
+	def require_post?(path)
+		%w|statuses/update direct_messages/new channel_message/update|.include?(path)
+	end
 
+	def api(path, q={})
+		ret           = {}
 		q["source"] ||= api_source
-		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
 
 		uri = api_base.dup
-		uri.path  = path.sub(%r{^/*}, "/") << ".json"
-		uri.query = q
+		uri.path  = "/#{path}.json"
+		uri.query = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
+
+
+		req = nil
+		if require_post?(path)
+			req = Net::HTTP::Post.new(uri.path)
+			req.body = uri.query
+		else
+			req = Net::HTTP::Get.new(uri.request_uri)
+		end
+		req.basic_auth(@real, @pass)
+		req["User-Agent"]        = @user_agent
+		req["If-Modified-Since"] = q["since"] if q.key?("since")
 
 		@log.debug uri.inspect
-		Net::HTTP.start(uri.host, uri.port) do |http|
-			case uri.path
-			when "/statuses/update.json", "/direct_messages/new.json"
-				ret = http.post(uri.request_uri, q, headers)
-			else
-				ret = http.get(uri.request_uri, headers)
-			end
-		end
+		ret = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
 
 		case ret
 		when Net::HTTPOK # 200
