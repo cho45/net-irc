@@ -308,7 +308,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					# IM のときはいろいろめんどうなことする
 					nick, count = *st
 					pos = @counters[nick] - count
-					@debug.log "%p %s %d/%d => %d" % [
+					@log.debug "%p %s %d/%d => %d" % [
 						st,
 						nick,
 						count,
