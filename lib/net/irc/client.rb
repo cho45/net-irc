@@ -22,6 +22,8 @@ class Net::IRC::Client
 
 	# Connect to server and start loop.
 	def start
+		# reset config
+		@server_config = Message::ServerConfig.new
 		@socket = TCPSocket.open(@host, @port)
 		on_connected
 		post PASS, @opts.pass if @opts.pass
