@@ -3,6 +3,8 @@
 
 # wig.rb
 
+wig.rb channel: http://wassr.jp/channel/wigrb
+
 ## Launch
 
 	$ ruby wig.rb
