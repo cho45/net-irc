@@ -76,7 +76,7 @@ class Net::IRC::Message
 
 	# Same as params.
 	def to_a
-		@params
+		@params.dup
 	end
 
 	# If the message is CTCP, return true.

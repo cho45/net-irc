@@ -53,6 +53,15 @@ describe Net::IRC::Message, "construct" do
 		channel.should == "#channel"
 		message.should == "message"
 	end
+
+	it "#to_a should return duplicated array" do
+		m = Message.new("foo", "PRIVMSG", ["#channel", "message"])
+		m[0].should   == m.params[0]
+		m[1].should   == m.params[1]
+		m.to_a.should == ["#channel", "message"]
+		m.to_a.clear
+		m.to_a.should == ["#channel", "message"]
+	end
 end
 
 describe Net::IRC::Message, "parse" do
