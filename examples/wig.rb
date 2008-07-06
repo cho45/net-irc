@@ -521,7 +521,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 									log "#{nick}: #{body}"
 								when body =~ /^#([a-z_]+)\s+(.+)$/i
 									# channel message or not
-									message(id || nick, Regexp.last_match[1], Regexp.last_match[2])
+									message(id || nick, "##{Regexp.last_match[1]}", Regexp.last_match[2])
 								else
 									message(id || nick, main_channel, body)
 								end
