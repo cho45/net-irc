@@ -145,6 +145,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		@channels   = {}
 		@user_agent = "#{self.class}/#{server_version} (wig.rb)"
 		@map        = nil
+		@counters   = {} # for jabber fav
 	end
 
 	def on_user(m)
@@ -303,7 +304,22 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			tid = args[0]
 			st  = @tmap[tid]
 			if st
-				id = st["id"] || st["rid"]
+				if @im && @im.connected?
+					# IM のときはいろいろめんどうなことする
+					nick, count = *st
+					pos = @counters[nick] - count
+					@debug.log "%p %s %d/%d => %d" % [
+						st,
+						nick,
+						count,
+						@counters[nick],
+						pos
+					]
+					res = api("statuses/user_timeline", { "id" => nick })[pos]
+					id = res["rid"]
+				else
+					id = st["id"] || st["rid"]
+				end
 				res = api("favorites/create/#{id}", {})
 				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
 			else
@@ -532,7 +548,10 @@ class WassrIrcGateway < Net::IRC::Server::Session
 									nick = Regexp.last_match[1]
 									message(nick, main_channel, body)
 								else
-									message(id || nick, main_channel, body)
+									@counters[nick] ||= 0
+									@counters[nick] += 1
+									tid = @tmap.push([nick, @counters[nick]])
+									message(nick, main_channel, "%s \x03%s [%s]" % [body, @opts["tid"], tid])
 								end
 							end
 						end
