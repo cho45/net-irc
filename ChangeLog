@@ -1,3 +1,8 @@
+2008-07-06 Satoshi Nakagawa <psychs@limechat.net>
+
+	* [new]:
+		Added a mode parser which can be configured automatically from 005 replies.
+
 2008-06-28 cho45
 
 	* [interface]:
