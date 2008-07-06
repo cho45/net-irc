@@ -1,14 +1,14 @@
 class Net::IRC::Message::ServerConfig
 	attr_reader :mode_parser
-	
+
 	def initialize
 		@config = {}
-		@mode_parser = Net::IRC::Message::ModeParser::ISupport.new
+		@mode_parser = Net::IRC::Message::ModeParser.new
 	end
 
 	def set(arg)
 		params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(/\s+/)
-		
+
 		params[1..-1].each do |s|
 			case s
 			when /^:?are supported by this server$/
@@ -23,7 +23,7 @@ class Net::IRC::Message::ServerConfig
 			end
 		end
 	end
-	
+
 	def [](key)
 		@config[key]
 	end
