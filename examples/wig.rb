@@ -255,7 +255,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#(.+)/
 				channel = Regexp.last_match[1]
 				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
-					message = "##{channel} #{message}" unless channel == main_channel
+					message = "##{channel} #{message}" unless "##{channel}" == main_channel
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, channel, untinyurl(message)
 				else
