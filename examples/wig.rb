@@ -549,7 +549,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def require_post?(path)
-		%w|statuses/update direct_messages/new channel_message/update|.include?(path)
+		[
+			"statuses/update",
+			"direct_messages/new",
+			"channel_message/update",
+			%r|^favorites/create|,
+		].any? {|i| i === path }
 	end
 
 	def api(path, q={})
