@@ -356,10 +356,15 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
 			next if channel == main_channel
-			@channels[channel] = {
-				:read => []
-			}
-			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+			res = api("channel/exists", { "name_en" => channel.sub(/^#/, "") })
+			if res["exists"]
+				@channels[channel] = {
+					:read => []
+				}
+				post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+			else
+				post nil, ERR_NOSUCHNICK, channel, "No such nick/channel"
+			end
 		end
 	end
 
