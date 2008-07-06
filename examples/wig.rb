@@ -412,16 +412,20 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		@channels.keys.each do |channel|
 			@log.debug "getting channel -> #{channel}..."
 			api("channel_message/list", { "name_en" => channel.sub(/^#/, "") }).reverse_each do |s|
-				id = Digest::MD5.hexdigest(s["user"]["login_id"] + s["body"])
-				next @channels[channel][:read].include?(id)
-				@channels[channel][:read] << id
-				nick = s["user"]["login_id"]
-				mesg = s["body"]
+				begin
+					id = Digest::MD5.hexdigest(s["user"]["login_id"] + s["body"])
+					next if @channels[channel][:read].include?(id)
+					@channels[channel][:read] << id
+					nick = s["user"]["login_id"]
+					mesg = s["body"]
 
-				if nick == @nick
-					# TODO
-				else
-					message(nick, channel, mesg)
+					if nick == @nick
+						post nick, NOTICE, channel, mesg
+					else
+						message(nick, channel, mesg)
+					end
+				rescue Execepton => e
+					post server_name, NOTICE, channel, e.inspect
 				end
 			end
 			@channels[channel][:read] = @channels[channel][:read].last(100)
