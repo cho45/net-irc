@@ -18,7 +18,7 @@ require "net/irc"
 NAME              = "net-irc"
 AUTHOR            = "cho45"
 EMAIL             = "cho45@lowreal.net"
-DESCRIPTION       = ""
+DESCRIPTION       = "library for implementing IRC server and client"
 RUBYFORGE_PROJECT = "lowreal"
 HOMEPATH          = "http://#{RUBYFORGE_PROJECT}.rubyforge.org"
 BIN_FILES         = %w(  )

@@ -1,3 +1,12 @@
+2008-07-06  SATOH Hiroh <cho45@lowreal.net>
+
+	* [interface]:
+		Removed around @channels and separeted to
+		Net::IRC::Client::ChannelManager as just a sample of managing
+		channels.
+	* [release]:
+		Released 0.0.5
+
 2008-07-06 Satoshi Nakagawa <psychs@limechat.net>
 
 	* [new]:
@@ -9,6 +18,8 @@
 		Change mode character to symbol.
 	* [new]:
 		Seperate each class to some files.
+	* [release]:
+		Released 0.0.4
 
 2008-06-14 cho45
 
