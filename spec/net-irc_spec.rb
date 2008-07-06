@@ -344,6 +344,27 @@ describe Net::IRC, "server and client" do
 			c["#test1"][:modes].should_not include([:v, "foo5"])
 			c["#test"][:modes].should      include([:o, "foo2"])
 		end
+
+		TestServerSession.instance.instance_eval do
+			Thread.exclusive do
+				post "foonick!test@localhost",  NICK, "foonick2"
+				post "foonick2!test@localhost", NICK, "foonick"
+				post "foo2!test@localhost",     NICK, "bar2"
+				post "foo3!test@localhost",     NICK, "bar3"
+				post nil,                     NOTICE, "#test", "sep5"
+			end
+		end
+
+		true until client_q.pop.to_s == "NOTICE #test sep5\r\n"
+		c.synchronize do
+			c["#test"][:users].should      == ["foonick", "test1", "test2", "bar2", "bar3", "foo5"]
+			c["#test1"][:users].should     == ["foo1", "bar2", "bar3"]
+			c["#test"][:modes].should_not  include([:o, "foo4"])
+			c["#test"][:modes].should      include([:v, "foo5"])
+			c["#test1"][:modes].should_not include([:v, "foo5"])
+			c["#test"][:modes].should_not  include([:o, "foo2"])
+			c["#test"][:modes].should      include([:o, "bar2"])
+		end
 	end
 
 	it "should allow lame RPL_WELCOME (not prefix but nick)" do

@@ -176,6 +176,23 @@ class Net::IRC::Client
 	end
 
 	# For managing channel
+	def on_nick(m)
+		oldnick = m.prefix.nick
+		newnick = m[0]
+
+		@channels.synchronize do
+			@channels.each do |channel, info|
+				info[:users].map! {|i|
+					(i == oldnick) ? newnick : i
+				}
+				info[:modes].map! {|m, target|
+					(target == oldnick) ? [m, newnick] : [m, target]
+				}
+			end
+		end
+	end
+
+	# For managing channel
 	def on_mode(m)
 		channel = m[0]
 		@channels.synchronize do
