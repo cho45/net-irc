@@ -7,22 +7,28 @@ class Net::IRC::Message::ModeParser
 
 	def initialize
 		@modes    = {}
-		@op_marks = {}
+		@op_to_mark_map = {}
+		@mark_to_op_map = {}
 
 		# Initialize for ircd 2.11 (RFC2812+)
 		set(:CHANMODES, 'beIR,k,l,imnpstaqr')
 		set(:PREFIX, '(ov)@+')
+	end
+	
+	def mark_to_op(mark)
+		mark.empty? ? nil : @mark_to_op_map[mark.to_sym]
 	end
 
 	def set(key, value)
 		case key
 		when :PREFIX
 			if value =~ /^\(([a-zA-Z]+)\)(.+)$/
-				@op_marks = {}
+				@op_to_mark_map = {}
 				key, value = Regexp.last_match[1], Regexp.last_match[2]
 				key.scan(/./).zip(value.scan(/./)) {|pair|
-					@op_marks[pair[0].to_sym] = pair[1]
+					@op_to_mark_map[pair[0].to_sym] = pair[1].to_sym
 				}
+				@mark_to_op_map = @op_to_mark_map.invert
 			end
 		when :CHANMODES
 			@modes = {}
@@ -66,7 +72,7 @@ class Net::IRC::Message::ModeParser
 					when NO_PARAM
 						current << [c, nil]
 					else
-						if @op_marks[c]
+						if @op_to_mark_map[c]
 							current << [c, params.shift]
 						end
 					end

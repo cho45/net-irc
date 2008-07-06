@@ -92,12 +92,10 @@ class Net::IRC::Client
 
 				@channels[channel][:users] << nick
 				@channels[channel][:users].uniq!
-
-				case mode
-				when "@" # channel operator
-					@channels[channel][:modes] << [:o, nick]
-				when "+" # voiced (under moderating mode)
-					@channels[channel][:modes] << [:v, nick]
+				
+				op = @server_config.mode_parser.mark_to_op(mode)
+				if op
+					@channels[channel][:modes] << [op, nick]
 				end
 			end
 

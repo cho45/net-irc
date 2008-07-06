@@ -110,7 +110,7 @@ describe Message::ModeParser do
 
 	it "should parse modes of Unreal ircd correctly" do
 		parser = Message::ModeParser.new
-		parser.set(:PREFIX, '(qaohv)~&@%+ ')
+		parser.set(:PREFIX, '(qaohv)~&@%+')
 		parser.set(:CHANMODES, 'beI,kfL,lj,psmntirRcOAQKVCuzNSMTG')
 		
 		parser.parse("#Finish +im")[:positive].should        == [[:i, nil], [:m, nil]]
