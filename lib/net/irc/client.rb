@@ -6,10 +6,11 @@ class Net::IRC::Client
 	attr_reader :prefix, :channels
 
 	def initialize(host, port, opts={})
-		@host = host
-		@port = port
-		@opts = OpenStruct.new(opts)
-		@log  = @opts.logger || Logger.new($stdout)
+		@host          = host
+		@port          = port
+		@opts          = OpenStruct.new(opts)
+		@log           = @opts.logger || Logger.new($stdout)
+		@server_config = Message::ServerConfig.new
 		@channels = {
 #			"#channel" => {
 #				:modes => [],
@@ -21,7 +22,6 @@ class Net::IRC::Client
 
 	# Connect to server and start loop.
 	def start
-		@server_config = Message::ServerConfig.new
 		@socket = TCPSocket.open(@host, @port)
 		on_connected
 		post PASS, @opts.pass if @opts.pass
