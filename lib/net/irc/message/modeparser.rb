@@ -41,4 +41,5 @@ class Net::IRC::Message::ModeParser
 
 	autoload :RFC1459,  "net/irc/message/modeparser/rfc1459"
 	autoload :Hyperion, "net/irc/message/modeparser/hyperion"
+	autoload :ISupport, "net/irc/message/modeparser/isupport"
 end

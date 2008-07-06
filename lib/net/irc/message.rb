@@ -96,5 +96,7 @@ class Net::IRC::Message
 	end
 
 	autoload :ModeParser, "net/irc/message/modeparser"
+	autoload :ServerConfig, "net/irc/message/serverconfig"
+	autoload :ISupportModeParser, "net/irc/message/isupportmodeparser"
 end # Message
 

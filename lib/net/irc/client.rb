@@ -21,6 +21,7 @@ class Net::IRC::Client
 
 	# Connect to server and start loop.
 	def start
+		@server_config = Message::ServerConfig.new
 		@socket = TCPSocket.open(@host, @port)
 		on_connected
 		post PASS, @opts.pass if @opts.pass
@@ -64,6 +65,12 @@ class Net::IRC::Client
 	# This sets @prefix from the message.
 	def on_rpl_welcome(m)
 		@prefix = Prefix.new(m[1][/\S+$/])
+	end
+
+	# Default RPL_ISUPPORT callback.
+	# This detects server's configurations.
+	def on_rpl_isupport(m)
+		@server_config.set(m)
 	end
 
 	# Default PING callback. Response PONG.
@@ -174,7 +181,7 @@ class Net::IRC::Client
 		@channels.synchronize do
 			init_channel(channel)
 
-			mode = Message::ModeParser::RFC1459::Channel.parse(m)
+			mode = @server_config.mode_parser.parse(m)
 			mode[:negative].each do |m|
 				@channels[channel][:modes].delete(m)
 			end
