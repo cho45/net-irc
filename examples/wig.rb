@@ -315,8 +315,13 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@counters[nick],
 						pos
 					]
-					res = api("statuses/user_timeline", { "id" => nick })[pos]
-					id = res["rid"]
+					res = api("statuses/user_timeline", { "id" => nick })
+					raise ApiFailed, "#{nick} may be private mode" if res.empty?
+					if res[pos]
+						id = res[pos]["rid"]
+					else
+						raise ApiFailed, "#{pos} of #{nick} is not found."
+					end
 				else
 					id = st["id"] || st["rid"]
 				end
