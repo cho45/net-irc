@@ -40,8 +40,10 @@ class Mixi
 		@agent.submit form
 
 		page = @agent.get "http://mixi.jp/home.pl"
-		page = @agent.get page.links[18].uri
-		form = page.forms[(@mixi_premium ? 1 : 0)]
+		#page = @agent.get page.links[18].uri
+		page = @agent.get page.links[14].uri
+		form = page.forms[1]
+		#form = page.forms[(@mixi_premium ? 1 : 0)]
 		form.diary_title = title
 		form.diary_body = self.class.magic_body(body)
 		get_image images
@@ -54,13 +56,13 @@ class Mixi
 			form.file_uploads[i].file_name = img
 		end
 		page = @agent.submit form
-		page = @agent.submit page.forms[0]
+		page = @agent.submit page.forms[1]
 	end
 
 	def get_latest
 		page = @agent.get 'http://mixi.jp/list_diary.pl'
-		["http://mixi.jp/" << page.links[37].uri.to_s.toutf8,
-			page.links[37].text.toutf8]
+		["http://mixi.jp/" << page.links[33].uri.to_s.toutf8,
+			page.links[33].text.toutf8]
 	end
 
 	def self.magic_body(body)
