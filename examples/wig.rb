@@ -303,34 +303,37 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when "fav"
-			tid = args[0]
-			st  = @tmap[tid]
-			if st
-				if @im && @im.connected?
-					# IM のときはいろいろめんどうなことする
-					nick, count = *st
-					pos = @counters[nick] - count
-					@log.debug "%p %s %d/%d => %d" % [
-						st,
-						nick,
-						count,
-						@counters[nick],
-						pos
-					]
-					res = api("statuses/user_timeline", { "id" => nick })
-					raise ApiFailed, "#{nick} may be private mode" if res.empty?
-					if res[pos]
-						id = res[pos]["rid"]
+			target = args[0]
+			st  = @tmap[target]
+			id  = rid_for(target)
+			if st || id
+				unless id
+					if @im && @im.connected?
+						# IM のときはいろいろめんどうなことする
+						nick, count = *st
+						pos = @counters[nick] - count
+						@log.debug "%p %s %d/%d => %d" % [
+							st,
+							nick,
+							count,
+							@counters[nick],
+							pos
+						]
+						res = api("statuses/user_timeline", { "id" => nick })
+						raise ApiFailed, "#{nick} may be private mode" if res.empty?
+						if res[pos]
+							id = res[pos]["rid"]
+						else
+							raise ApiFailed, "#{pos} of #{nick} is not found."
+						end
 					else
-						raise ApiFailed, "#{pos} of #{nick} is not found."
+						id = st["id"] || st["rid"]
 					end
-				else
-					id = st["id"] || st["rid"]
 				end
 				res = api("favorites/create/#{id}", {})
 				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
 			else
-				post nil, NOTICE, main_channel, "No such id #{tid}"
+				post nil, NOTICE, main_channel, "No such id or status #{target}"
 			end
 		when "link"
 			tid = args[0]
@@ -658,9 +661,11 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	def rid_for(text)
 		target = Regexp.new(Regexp.quote(text.strip), "i")
 		status = api("statuses/friends_timeline").find {|i|
+			next false if i["user_login_id"] == @nick # 自分は除外
 			i["text"] =~ target
 		}
 
+		@log.debug "Looking up status contains #{text.inspect} -> #{status.inspect}"
 		status ? status["rid"] : nil
 	end
 
