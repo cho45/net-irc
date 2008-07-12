@@ -257,13 +257,15 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		begin
 			if target =~ /^#(.+)/
 				channel = Regexp.last_match[1]
-				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
+				reply   = message[/>(.+)$/, 1]
+				if !reply && @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
 					message = "##{channel} #{message}" unless "##{channel}" == main_channel
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, channel, untinyurl(message)
 				else
 					if "##{channel}" == main_channel
-						ret = api("statuses/update", {"status" => message})
+						rid = rid_for(reply) if reply
+						ret = api("statuses/update", {"status" => message, "reply_status_rid" => rid})
 					else
 						ret = api("channel_message/update", {"name_en" => channel, "body" => message})
 					end
@@ -592,7 +594,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		uri = api_base.dup
 		uri.path  = "/#{path}.json"
-		uri.query = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
+		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 
 
 		req = nil
@@ -650,6 +652,16 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				end
 			}
 		}
+	end
+
+	# return rid of most recent matched status with text
+	def rid_for(text)
+		target = Regexp.new(Regexp.quote(text.strip), "i")
+		status = api("statuses/friends_timeline").find {|i|
+			i["text"] =~ target
+		}
+
+		status ? status["rid"] : nil
 	end
 
 	class TypableMap < Hash
