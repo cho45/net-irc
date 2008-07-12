@@ -269,13 +269,13 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					else
 						ret = api("channel_message/update", {"name_en" => channel, "body" => message})
 					end
+					log "Status Updated via API"
 				end
 			else
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
 			raise ApiFailed, "API failed" unless ret
-			log "Status Updated" unless @im && @im.connected?
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
 			if retry_count > 0
