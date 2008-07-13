@@ -86,7 +86,9 @@ Use IM instead of any APIs (e.g. post)
 
 ### replies[=<ratio>]
 
-### checkrls[=<interval seconds>]
+### maxlimit=<hourly limit>
+
+### checkrls=<interval seconds>
 
 ## License
 
@@ -140,7 +142,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def hourly_limit
-		20
+		60
 	end
 
 	class ApiFailed < StandardError; end
@@ -189,6 +191,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.info "Client Options: #{@opts.inspect}"
 
 		@hourly_limit = hourly_limit
+
 		@check_rate_limit_thread = Thread.start do
 			loop do
 				begin
@@ -201,18 +204,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep @opts["checkrls"] || 3600 # 1 time / hour
+				sleep @opts["checkrls"] || 3600 # 1 hour
 			end
 		end
 		sleep 5
 
-		timeline_ratio, friends_ratio = (@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_i }
-		footing = (timeline_ratio + friends_ratio).to_f
+		@ratios = (@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f }
 
 		if @opts.key?("replies")
-			replies_ratio ||= (@opts["replies"] || 5).to_i
-			footing += replies_ratio
+			@ratios << (@opts["replies"] || 5).to_f
 		end
+
+		footing = @ratios.inject {|sum, ratio| sum + ratio }
+		@ratios.map! {|ratio| ratio / footing }
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -227,7 +231,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(friends_ratio / footing)
+				sleep freq(@ratios[1])
 			end
 		end
 
@@ -247,7 +251,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(timeline_ratio / footing)
+				sleep freq(@ratios[0])
 			end
 		end
 
@@ -266,7 +270,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(replies_ratio / footing)
+				sleep freq(@ratios[2])
 			end
 		end
 	end
@@ -344,6 +348,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			else
 				post nil, NOTICE, main_channel, "No such id #{tid}"
 			end
+#		when "ratios"
+#			if args.size < 2 ||
+#			   @opts.key?("replies") && args.size < 3
+#				return post nil, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
+#			end
+#			ratios  = args.map {|ratio| ratio.to_f }
+#			if ratios.any? {|ratio| ratio <= 0.0 }
+#				return post nil, NOTICE, main_channel, "Ratios must be greater than 0."
+#			end
+#			footing = ratios.inject {|sum, ratio| sum + ratio }
+#			@ratios = ratios.map! {|ratio| ratio / footing }
+#			freqs   = ratios.map {|ratio| freq ratio }
+#			post nil, NOTICE, main_channel, "Intervals: #{freqs.join(", ")}"
 		end
 	rescue ApiFailed => e
 		log e.inspect
@@ -451,7 +468,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			tid = @tmap.push(s)
 
 			@log.debug [id, nick, mesg]
-			if nick == @nick # 自分のときは topic に
+			if nick == @nick # 自分のときは TOPIC に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
 				if @opts["tid"]
@@ -549,8 +566,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_rate_limit
 		@log.debug rate_limit = api("account/rate_limit_status")
 		if @hourly_limit != rate_limit["hourly_limit"]
-			log "Rate limit changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
-			@log.info "Rate limit changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
+			msg = "Rate limit was changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
+			log msg
+			@log.info msg
 			@hourly_limit = rate_limit["hourly_limit"]
 		end
 		# rate_limit["remaining_hits"] < 1
@@ -558,9 +576,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def freq(ratio)
-		ret = 3600 / (@hourly_limit * ratio).round
-		@log.debug "Frequency: #{ret}"
-		ret
+		max   = @opts["maxlimit"] || 300
+		limit = @hourly_limit < max ? @hourly_limit : max
+		f     = 3600 / (limit * ratio).round
+		@log.debug "Frequency: #{f}"
+		f
 	end
 
 	def start_jabber(jid, pass)
