@@ -132,13 +132,17 @@ class MixiDiary < Net::IRC::Server::Session
 
 		case m[1]
 		when "."
-			title, body = *@cont
-			@mixi.post ">_<× <  #{title}".toeuc, body.toeuc, []
+			title, *body = *@cont
+			@mixi.post ">_<× <  #{title}".toeuc, body.join("\n").toeuc, []
 			@mixi.get_latest.each do |line|
 				post server_name, NOTICE, main_channel, line.chomp
 			end
 		when " "
 			@cont.clear
+		when "p"
+			@cont.each do |l|
+				post server_name, NOTICE, main_channel, l
+			end
 		else
 			@cont << m[1]
 		end
