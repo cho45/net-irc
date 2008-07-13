@@ -74,14 +74,14 @@ class GmailNotifier < Net::IRC::Server::Session
 					page = @agent.get(URI.parse("https://gmail.google.com/gmail/feed/atom"))
 					feed = REXML::Document.new page.body
 					db = SDBM.open("#{Dir.tmpdir}/#{@real}.db", 0666)
-					feed.get_elements('/feed/entry').each do |item|
+					feed.get_elements('/feed/entry').reverse.each do |item|
 						id = item.text('id')
 						if db.include?(id)
 							next
 						else
 							db[id] = "1"
 						end
-						post server_name, NOTICE, main_channel, "#{item.text('title')} from: #{item.text('author/name')}"
+						post server_name, NOTICE, main_channel, "Subject: #{item.text('title')} From: #{item.text('author/name')}"
 						post server_name, NOTICE, main_channel, "#{item.text('summary')}"
 					end
 				rescue Exception => e
