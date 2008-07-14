@@ -143,6 +143,8 @@ class MixiDiary < Net::IRC::Server::Session
 			@cont.each do |l|
 				post server_name, NOTICE, main_channel, l
 			end
+		when "d"
+			@cont.pop
 		else
 			@cont << m[1]
 		end
