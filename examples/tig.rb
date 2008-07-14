@@ -576,7 +576,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def freq(ratio)
-		max   = @opts["maxlimit"] || 300
+		max   = (@opts["maxlimit"] || 300).to_i
 		limit = @hourly_limit < max ? @hourly_limit : max
 		f     = 3600 / (limit * ratio).round
 		@log.debug "Frequency: #{f}"
