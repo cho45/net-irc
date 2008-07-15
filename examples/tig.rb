@@ -209,14 +209,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 5
 
-		@ratios = (@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f }
+		@ratio = Struct.new(:timeline, :friends, :replies).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
+		@ratio[:replies] = @opts.key?("replies") ? (@opts["replies"] || 5).to_f : 0.0
 
-		if @opts.key?("replies")
-			@ratios << (@opts["replies"] || 5).to_f
-		end
+		footing = @ratio.inject {|sum, ratio| sum + ratio }
 
-		footing = @ratios.inject {|sum, ratio| sum + ratio }
-		@ratios.map! {|ratio| ratio / footing }
+		@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -231,7 +229,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratios[1])
+				sleep freq(@ratio[:friends])
 			end
 		end
 
@@ -251,7 +249,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratios[0])
+				sleep freq(@ratio[:timeline])
 			end
 		end
 
@@ -270,7 +268,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratios[2])
+				sleep freq(@ratio[:replies])
 			end
 		end
 	end
@@ -348,19 +346,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			else
 				post nil, NOTICE, main_channel, "No such id #{tid}"
 			end
-#		when "ratios"
+#		when "ratios", "ratio"
 #			if args.size < 2 ||
 #			   @opts.key?("replies") && args.size < 3
 #				return post nil, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
 #			end
-#			ratios  = args.map {|ratio| ratio.to_f }
+#			ratios = args.map {|ratio| ratio.to_f }
 #			if ratios.any? {|ratio| ratio <= 0.0 }
 #				return post nil, NOTICE, main_channel, "Ratios must be greater than 0."
 #			end
 #			footing = ratios.inject {|sum, ratio| sum + ratio }
-#			@ratios = ratios.map! {|ratio| ratio / footing }
-#			freqs   = ratios.map {|ratio| freq ratio }
-#			post nil, NOTICE, main_channel, "Intervals: #{freqs.join(", ")}"
+#			@ratio[:timeline] = ratios[0]
+#			@ratio[:friends]  = ratios[1]
+#			@ratio[:replies]  = ratios[2] || 0.0
+#			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
+#			intervals = @ratio.map {|ratio| freq ratio }
+#			post nil, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
 		end
 	rescue ApiFailed => e
 		log e.inspect
