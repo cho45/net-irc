@@ -181,8 +181,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		timeline_ratio, friends_ratio, channel_ratio = (@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_i }
-		footing = (timeline_ratio + friends_ratio + channel_ratio).to_f
+		@ratio  = Struct.new(:timeline, :friends, :channel).new(*(@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_f })
+		@footing = @ratio.inject {|r,i| r + i }
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -197,7 +197,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(friends_ratio / footing)
+				sleep freq(@ratio[:friends] / @footing)
 			end
 		end
 
@@ -217,7 +217,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(timeline_ratio / footing)
+				sleep freq(@ratio[:timeline] / @footing)
 			end
 		end
 
@@ -236,7 +236,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(channel_ratio / footing)
+				sleep freq(@ratio[:channel] / @footing)
 			end
 		end
 	end
