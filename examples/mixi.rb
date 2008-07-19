@@ -130,6 +130,7 @@ class MixiDiary < Net::IRC::Server::Session
 	def on_privmsg(m)
 		super
 
+		# CTCP にしたほうがよくないか?
 		case m[1]
 		when "."
 			title, *body = *@cont
@@ -137,16 +138,22 @@ class MixiDiary < Net::IRC::Server::Session
 			@mixi.get_latest.each do |line|
 				post server_name, NOTICE, main_channel, line.chomp
 			end
-		when " "
+		when "c"
 			@cont.clear
+			post server_name, NOTICE, main_channel, "cleared."
 		when "p"
 			@cont.each do |l|
 				post server_name, NOTICE, main_channel, l
 			end
+			post server_name, NOTICE, main_channel, "^^end"
 		when "d"
-			@cont.pop
+			post server_name, NOTICE, main_channel, "Deleted last line: #{@cont.pop}"
 		else
 			@cont << m[1]
+			if @cont.size == 1
+				post server_name, NOTICE, main_channel, "start with title: #{@cont.first}"
+			else
+			end
 		end
 	end
 
