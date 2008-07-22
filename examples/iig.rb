@@ -1,29 +1,29 @@
 #!/usr/bin/env ruby
 =begin
 
-# wig.rb
+# iig.rb
 
-wig.rb channel: http://wassr.jp/channel/wigrb
+Identi.ca/Laconi.ca IRC gateway
 
 ## Launch
 
-	$ ruby wig.rb
+	$ ruby iig.rb
 
 If you want to help:
 
-	$ ruby wig.rb --help
+	$ ruby iig.rb --help
 
 ## Configuration
 
-Options specified by after irc realname.
+Options specified by after IRC realname.
 
-Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 
-	wassr {
+	identica {
 		host: localhost
-		port: 16670
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=10:3:5
-		password: password on Wassr
+		port: 16672
+		name: username@example.com athack tid=10 ratio=32:1 replies=6
+		password: password on Identi.ca
 		in-encoding: utf8
 		out-encoding: utf8
 	}
@@ -34,16 +34,16 @@ If `athack` client option specified,
 all nick in join message is leading with @.
 
 So if you complemente nicks (e.g. Irssi),
-it's good for Twitter like reply command (@nick).
+it's good for Identi.ca like reply command (@nick).
 
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
 
 ### tid=<color>
 
-Apply id to each message for make favorites by CTCP ACTION.
+Apply ID to each message for make favorites by CTCP ACTION.
 
-	/me fav id
+	/me fav ID [ID]...
 
 <color> can be
 
@@ -81,7 +81,13 @@ Be careful for managing password.
 
 Use IM instead of any APIs (e.g. post)
 
-### ratio=<timeline>:<friends>:<channel>
+### ratio=<timeline>:<friends>
+
+### replies[=<ratio>]
+
+### maxlimit=<hourly limit>
+
+### checkrls=<interval seconds>
 
 ## License
 
@@ -105,13 +111,12 @@ require "logger"
 require "yaml"
 require "pathname"
 require "cgi"
-require "digest/md5"
 
 Net::HTTP.version_1_2
 
-class WassrIrcGateway < Net::IRC::Server::Session
+class IdenticaIrcGateway < Net::IRC::Server::Session
 	def server_name
-		"wassrgw"
+		"identicagw"
 	end
 
 	def server_version
@@ -119,19 +124,19 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def main_channel
-		"#wassr"
+		"#Identi.ca"
 	end
 
 	def api_base
-		URI("http://api.wassr.jp/")
+		URI("http://identi.ca/api/")
 	end
 
 	def api_source
-		"wig.rb"
+		"iigrb"
 	end
 
 	def jabber_bot_id
-		"wassr-bot@wassr.jp"
+		"identica@identi.ca"
 	end
 
 	def hourly_limit
@@ -142,10 +147,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@channels   = {}
-		@user_agent = "#{self.class}/#{server_version} (wig.rb)"
+		@groups     = {}
+		@channels   = [] # joined channels (groups)
+		@user_agent = "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"
+		@config     = Pathname.new(ENV["HOME"]) + ".iig"
 		@map        = nil
-		@counters   = {} # for jabber fav
+		load_config
 	end
 
 	def on_user(m)
@@ -169,7 +176,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					start_jabber(jid, pass)
 				rescue LoadError
 					log "Failed to start Jabber."
-					log 'Installl "xmpp4r-simple" gem or check your id/pass.'
+					log 'Installl "xmpp4r-simple" gem or check your ID/pass.'
 					finish
 				end
 			else
@@ -181,8 +188,13 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		@ratio  = Struct.new(:timeline, :friends, :channel).new(*(@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_f })
-		@footing = @ratio.inject {|r,i| r + i }
+		@hourly_limit = hourly_limit
+		@ratio = Struct.new(:timeline, :friends, :replies).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
+		@ratio[:replies] = @opts.key?("replies") ? (@opts["replies"] || 5).to_f : 0.0
+
+		footing = @ratio.inject {|sum, ratio| sum + ratio }
+
+		@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -197,14 +209,14 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:friends] / @footing)
+				sleep freq(@ratio[:friends])
 			end
 		end
 
 		return if @opts["jabber"]
 
+		sleep 3
 		@check_timeline_thread = Thread.start do
-			sleep 3
 			loop do
 				begin
 					check_timeline
@@ -217,17 +229,17 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:timeline] / @footing)
+				sleep freq(@ratio[:timeline])
 			end
 		end
 
-		@check_channel_thread = Thread.start do
-			sleep 5
-			Thread.abort_on_exception= true
+		return unless @opts.key?("replies")
+
+		sleep 10
+		@check_replies_thread = Thread.start do
 			loop do
 				begin
-					check_channel
-					# check_direct_messages
+					check_replies
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
@@ -236,17 +248,17 @@ class WassrIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:channel] / @footing)
+				sleep freq(@ratio[:replies])
 			end
 		end
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill  rescue nil
-		@check_timeline_thread.kill rescue nil
-		@check_channel_thread.kill  rescue nil
-		@im_thread.kill             rescue nil
-		@im.disconnect              rescue nil
+		@check_friends_thread.kill    rescue nil
+		@check_replies_thread.kill    rescue nil
+		@check_timeline_thread.kill   rescue nil
+		@im_thread.kill               rescue nil
+		@im.disconnect                rescue nil
 	end
 
 	def on_privmsg(m)
@@ -255,27 +267,19 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		ret = nil
 		target, message = *m.params
 		begin
-			if target =~ /^#(.+)/
-				channel = Regexp.last_match[1]
-				reply   = message[/>(.+)$/, 1]
-				if !reply && @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
-					message = "##{channel} #{message}" unless "##{channel}" == main_channel
+			if target =~ /^#/
+				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, message)
-					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, channel, untinyurl(message)
+					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
-					if "##{channel}" == main_channel
-						rid = rid_for(reply) if reply
-						ret = api("statuses/update", {"status" => message, "reply_status_rid" => rid})
-					else
-						ret = api("channel_message/update", {"name_en" => channel, "body" => message})
-					end
-					log "Status Updated via API"
+					ret = api("statuses/update", {"status" => message})
 				end
 			else
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
 			raise ApiFailed, "API failed" unless ret
+			log "Status Updated"
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
 			if retry_count > 0
@@ -291,59 +295,70 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	def on_ctcp(target, message)
 		_, command, *args = message.split(/\s+/)
 		case command
-		when "list"
+		when "list", "ls"
 			nick = args[0]
+			unless (1..200).include?(count = args[1].to_i)
+				count = 20
+			end
 			@log.debug([ nick, message ])
-			res = api("statuses/user_timeline", { "id" => nick }).reverse_each do |s|
+			res = api("statuses/user_timeline", {"id" => nick, "count" => "#{count}"}).reverse_each do |s|
 				@log.debug(s)
 				post nick, NOTICE, main_channel, "#{generate_status_message(s)}"
 			end
-
 			unless res
 				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
-		when "fav"
-			target = args[0]
-			st  = @tmap[target]
-			id  = rid_for(target)
-			if st || id
-				unless id
-					if @im && @im.connected?
-						# IM のときはいろいろめんどうなことする
-						nick, count = *st
-						pos = @counters[nick] - count
-						@log.debug "%p %s %d/%d => %d" % [
-							st,
-							nick,
-							count,
-							@counters[nick],
-							pos
-						]
-						res = api("statuses/user_timeline", { "id" => nick })
-						raise ApiFailed, "#{nick} may be private mode" if res.empty?
-						if res[pos]
-							id = res[pos]["rid"]
-						else
-							raise ApiFailed, "#{pos} of #{nick} is not found."
-						end
-					else
-						id = st["id"] || st["rid"]
-					end
+		when /^(un)?fav(?:ou?rite)?$/
+			method = $1.nil? ? "create" : "destroy"
+			pfx = method == "create" ? "F" : "Unf"
+			args.each_with_index do |tid, i|
+				if st = @tmap[tid]
+					sleep 1 if i > 0
+					res = api("favorites/#{method}/#{st["id"]}", {})
+					post nil, NOTICE, main_channel, "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
+				else
+					post nil, NOTICE, main_channel, "No such ID #{tid}"
 				end
-				res = api("favorites/create/#{id}", {})
-				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
-			else
-				post nil, NOTICE, main_channel, "No such id or status #{target}"
 			end
-		when "link"
-			tid = args[0]
-			st  = @tmap[tid]
-			if st
-				st["link"] = (api_base + "/#{st["user"]["screen_name"]}/statuses/#{st["id"]}").to_s unless st["link"]
-				post nil, NOTICE, main_channel, st["link"]
-			else
-				post nil, NOTICE, main_channel, "No such id #{tid}"
+		when "link", "ln"
+			args.each do |tid|
+				if st = @tmap[tid]
+					st["link"] = "http://#{api_base.host}/notice/#{st["id"]}" unless st["link"]
+					post nil, NOTICE, main_channel, st["link"]
+				else
+					post nil, NOTICE, main_channel, "No such ID #{tid}"
+				end
 			end
+#		when /^ratios?$/
+#			if args[1].nil? ||
+#			   @opts.key?("replies") && args[2].nil?
+#				return post nil, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
+#			end
+#			ratios = args.map {|ratio| ratio.to_f }
+#			if ratios.any? {|ratio| ratio <= 0.0 }
+#				return post nil, NOTICE, main_channel, "Ratios must be greater than 0."
+#			end
+#			footing = ratios.inject {|sum, ratio| sum + ratio }
+#			@ratio[:timeline] = ratios[0]
+#			@ratio[:friends]  = ratios[1]
+#			@ratio[:replies]  = ratios[2] || 0.0
+#			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
+#			intervals = @ratio.map {|ratio| freq ratio }
+#			post nil, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
+		when /^de(?:stroy|l(?:ete)?)$/, "remove", "miss"
+			args.each_with_index do |tid, i|
+				if st = @tmap[tid]
+					sleep 1 if i > 0
+					res = api("statuses/destroy/#{st["id"]}")
+					post nil, NOTICE, main_channel, "Destroyed: #{res["text"]}"
+				else
+					post nil, NOTICE, main_channel, "No such ID #{tid}"
+				end
+			end
+		when "in", "location"
+			location = args.join(" ")
+			api("account/update_location", {"location" => location})
+			post nil, NOTICE, main_channel, "You are in #{location} now."
 		end
 	rescue ApiFailed => e
 		log e.inspect
@@ -360,29 +375,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		else
 			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
-	end
-
-	def on_join(m)
-		channels = m.params[0].split(/\s*,\s*/)
-		channels.each do |channel|
-			next if channel == main_channel
-			res = api("channel/exists", { "name_en" => channel.sub(/^#/, "") })
-			if res["exists"]
-				@channels[channel] = {
-					:read => []
-				}
-				post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
-			else
-				post nil, ERR_NOSUCHNICK, channel, "No such nick/channel"
-			end
-		end
-	end
-
-	def on_part(m)
-		channel = m.params[0]
-		return if channel == main_channel
-		@channels.delete(channel)
-		post "#{@nick}!#{@nick}@#{api_base.host}", PART, channel
 	end
 
 	def on_who(m)
@@ -413,20 +405,69 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def on_join(m)
+		channels = m.params[0].split(/\s*,\s*/)
+		channels.each do |channel|
+			next if channel == main_channel
+
+			@channels << channel
+			@channels.uniq!
+			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+			post server_name, MODE, channel, "+o", @nick
+			save_config
+		end
+	end
+
+	def on_part(m)
+		channel = m.params[0]
+		return if channel == main_channel
+
+		@channels.delete(channel)
+		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
+	end
+
+	def on_invite(m)
+		nick, channel = *m.params
+		return if channel == main_channel
+
+		if (@friends || []).find {|i| i["screen_name"] == nick }
+			((@groups[channel] ||= []) << nick).uniq!
+			post "#{nick}!#{nick}@#{api_base.host}", JOIN, channel
+			post server_name, MODE, channel, "+o", nick
+			save_config
+		else
+			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
+		end
+	end
+
+	def on_kick(m)
+		channel, nick, mes = *m.params
+		return if channel == main_channel
+
+		if (@friends || []).find {|i| i["screen_name"] == nick }
+			(@groups[channel] ||= []).delete(nick)
+			post nick, PART, channel
+			save_config
+		else
+			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
+		end
+	end
+
 	private
 	def check_timeline
-		@prev_time ||= Time.at(0)
-		api("statuses/friends_timeline", {"since" => @prev_time.httpdate}).reverse_each do |s|
-			id = s["id"] || s["rid"]
+		time = @prev_time_f || Time.at(0)
+		@prev_time_f = Time.now
+		api("statuses/friends_timeline", {"since" => time.httpdate, "count" => "100"}).reverse_each do |s|
+			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
 			@timeline << id
-			nick = s["user_login_id"]
+			nick = s["user"]["screen_name"]
 			mesg = generate_status_message(s)
 
 			tid = @tmap.push(s)
 
 			@log.debug [id, nick, mesg]
-			if nick == @nick # 自分のときは topic に
+			if nick == @nick # 自分のときは TOPIC に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
 				if @opts["tid"]
@@ -435,34 +476,14 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					message(nick, main_channel, "%s" % [mesg, tid])
 				end
 			end
-		end
-		@log.debug "@timeline.size = #{@timeline.size}"
-		@timeline  = @timeline.last(100)
-		@prev_time = Time.now
-	end
-
-	def check_channel
-		@channels.keys.each do |channel|
-			@log.debug "getting channel -> #{channel}..."
-			api("channel_message/list", { "name_en" => channel.sub(/^#/, "") }).reverse_each do |s|
-				begin
-					id = Digest::MD5.hexdigest(s["user"]["login_id"] + s["body"])
-					next if @channels[channel][:read].include?(id)
-					@channels[channel][:read] << id
-					nick = s["user"]["login_id"]
-					mesg = s["body"]
-
-					if nick == @nick
-						post nick, NOTICE, channel, mesg
-					else
-						message(nick, channel, mesg)
-					end
-				rescue Execepton => e
-					post server_name, NOTICE, channel, e.inspect
+			@groups.each do |channel, members|
+				if members.include?(nick)
+					message(nick, channel, "%s [%s]" % [mesg, tid])
 				end
 			end
-			@channels[channel][:read] = @channels[channel][:read].last(100)
 		end
+		@log.debug "@timeline.size = #{@timeline.size}"
+		@timeline = @timeline.last(100)
 	end
 
 	def generate_status_message(status)
@@ -470,36 +491,47 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		mesg = s["text"]
 		@log.debug(mesg)
 
-		# added @user in no use @user reply message (Wassr only)
-		if s.has_key?("reply_status_url") and s["reply_status_url"] and s["text"] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s["reply_status_url"])
-			reply_user_id = $1
-			mesg = "@#{reply_user_id} #{mesg}"
-		end
-		# display area name (Wassr only)
-		if s.has_key?("areaname") and s["areaname"]
-			mesg += " L: #{s["areaname"]}"
-		end
-		# display photo URL (Wassr only)
-		if s.has_key?("photo_url") and s["photo_url"]
-			mesg += " #{s["photo_url"]}"
-		end
-
 		# time = Time.parse(s["created_at"]) rescue Time.now
-		m = { "&quot;" => "\"", "&lt;"=> "<", "&gt;"=> ">", "&amp;"=> "&", "\n" => " "}
+		m = {"&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " "}
 		mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
 		mesg
 	end
 
+	def check_replies
+		time = @prev_time_r || Time.now
+		@prev_time_r = Time.now
+		api("statuses/replies").reverse_each do |s|
+			id = s["id"]
+			next if id.nil? || @timeline.include?(id)
+			created_at = Time.parse(s["created_at"]) rescue next
+			next if created_at < time
+			@timeline << id
+			nick = s["user"]["screen_name"]
+			mesg = generate_status_message(s)
+
+			tid = @tmap.push(s)
+
+			@log.debug [id, nick, mesg]
+			if @opts["tid"]
+				message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
+			else
+				message(nick, main_channel, "%s" % mesg)
+			end
+		end
+		@log.debug "@timeline.size = #{@timeline.size}"
+		@timeline = @timeline.last(100)
+	end
+
 	def check_direct_messages
-		@prev_time_d ||= Time.now
-		api("direct_messages", {"since" => @prev_time_d.httpdate}).reverse_each do |s|
+		time = @prev_time_d || Time.now
+		@prev_time_d = Time.now
+		api("direct_messages", {"since" => time.httpdate}).reverse_each do |s|
 			nick = s["sender_screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"])
 			@log.debug [nick, mesg, time].inspect
 			message(nick, @nick, mesg)
 		end
-		@prev_time_d = Time.now
 	end
 
 	def check_friends
@@ -529,10 +561,32 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def check_downtime
+		@prev_downtime ||= nil
+		schedule = api("help/downtime_schedule", {}, {:avoid_error => true})["error"]
+		if @prev_downtime != schedule
+			@prev_downtime = schedule
+			if schedule.nil?
+				msg = "Identi.ca is back!"
+			else
+				msg  = schedule["error"].split(/\r?\n|\r/).last
+				uris = URI.extract(msg)
+				uris.each do |uri|
+					msg << " #{uri}"
+				end
+				msg.gsub!(/<[^>]+>/, "")
+				# TODO: sleeping for the downtime
+			end
+			log "\037#{msg}\017"
+		end
+	end
+
 	def freq(ratio)
-		ret = 3600 / (hourly_limit * ratio).round
-		@log.debug "Frequency: #{ret}"
-		ret
+		max   = (@opts["maxlimit"] || 300).to_i
+		limit = @hourly_limit < max ? @hourly_limit : max
+		f     = 3600 / (limit * ratio).round
+		@log.debug "Frequency: #{f}"
+		f
 	end
 
 	def start_jabber(jid, pass)
@@ -545,29 +599,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
-							# Wassr -> 'nick(id): msg'
+							# Twitter -> 'id: msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
 								body = CGI.unescapeHTML(body)
-
-								case
-								when nick == "投稿完了"
-									log "#{nick}: #{body}"
-								when nick == "チャンネル投稿完了"
-									log "#{nick}: #{body}"
-								when body =~ /^#([a-z_]+)\s+(.+)$/i
-									# channel message or not
-									message(id || nick, "##{Regexp.last_match[1]}", Regexp.last_match[2])
-								when nick == "photo" && body =~ %r|^http://wassr\.jp/user/([^/]+)/|
-									nick = Regexp.last_match[1]
-									message(nick, main_channel, body)
-								else
-									@counters[nick] ||= 0
-									@counters[nick] += 1
-									tid = @tmap.push([nick, @counters[nick]])
-									message(nick, main_channel, "%s \x03%s [%s]" % [body, @opts["tid"], tid])
-								end
+								message(id || nick, main_channel, body)
 							end
 						end
 					end
@@ -582,42 +619,57 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def require_post?(path)
-		[
-			"statuses/update",
-			"direct_messages/new",
-			"channel_message/update",
-			%r|^favorites/create|,
-		].any? {|i| i === path }
+	def save_config
+		config = {
+			:channels => @channels,
+			:groups   => @groups,
+		}
+		@config.open("w") do |f|
+			YAML.dump(config, f)
+		end
 	end
 
-	def api(path, q={})
-		ret           = {}
+	def load_config
+		@config.open do |f|
+			config = YAML.load(f)
+			@channels = config[:channels]
+			@groups   = config[:groups]
+		end
+	rescue Errno::ENOENT
+	end
+
+	def api(path, q = {}, opt = {})
+		ret     = {}
+		headers = {
+			"User-Agent"    => @user_agent,
+			"Authorization" => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
+		}
+		headers["If-Modified-Since"] = q["since"] if q.key?("since")
+
 		q["source"] ||= api_source
+		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
 
 		uri = api_base.dup
-		uri.path  = "/#{path}.json"
-		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
-
-
-		req = nil
-		if require_post?(path)
-			req = Net::HTTP::Post.new(uri.path)
-			req.body = uri.query
-		else
-			req = Net::HTTP::Get.new(uri.request_uri)
-		end
-		req.basic_auth(@real, @pass)
-		req["User-Agent"]        = @user_agent
-		req["If-Modified-Since"] = q["since"] if q.key?("since")
+		uri.path  = path.sub(%r{^/*}, "/") << ".json"
+		uri.query = q
 
 		@log.debug uri.inspect
-		ret = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
+		http = Net::HTTP.new(uri.host, uri.port)
+		http.start do
+			case uri.path
+			when "/statuses/update.json", "/direct_messages/new.json"
+				ret = http.post(uri.request_uri, q, headers)
+			else
+				ret = http.get(uri.request_uri, headers)
+			end
+		end
 
 		case ret
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
-			raise ApiFailed, "Server Returned Error: #{ret["error"]}" if ret.kind_of?(Hash) && ret["error"]
+			if ret.kind_of?(Hash) && !opt[:avoid_error] && ret["error"]
+				raise ApiFailed, "Server Returned Error: #{ret["error"]}"
+			end
 			ret
 		when Net::HTTPNotModified # 304
 			[]
@@ -632,13 +684,16 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def message(sender, target, str)
+#		str.gsub!(/&#(x)?([0-9a-f]+);/i) do
+#			[$1 ? $2.hex : $2.to_i].pack("U")
+#		end
 		str    = untinyurl(str)
 		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
 	end
 
 	def log(str)
-		str.gsub!(/\n/, " ")
+		str.gsub!(/\r?\n|\r/, " ")
 		post server_name, NOTICE, main_channel, str
 	end
 
@@ -649,24 +704,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			Net::HTTP.start(uri.host, uri.port) {|http|
 				http.open_timeout = 3
 				begin
-					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
+					http.head(uri.request_uri, {"User-Agent" => @user_agent})["Location"] || m
 				rescue Timeout::Error
 					m
 				end
 			}
 		}
-	end
-
-	# return rid of most recent matched status with text
-	def rid_for(text)
-		target = Regexp.new(Regexp.quote(text.strip), "i")
-		status = api("statuses/friends_timeline").find {|i|
-			next false if i["user_login_id"] == @nick # 自分は除外
-			i["text"] =~ target
-		}
-
-		@log.debug "Looking up status contains #{text.inspect} -> #{status.inspect}"
-		status ? status["rid"] : nil
 	end
 
 	class TypableMap < Hash
@@ -681,7 +724,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			end.map {|vowel| "#{consonant}#{vowel}" }
 		}.flatten
 
-		def initialize(size=1)
+		def initialize(size = 1)
 			@seq  = Roma
 			@map  = {}
 			@n    = 0
@@ -722,7 +765,7 @@ if __FILE__ == $0
 	require "optparse"
 
 	opts = {
-		:port  => 16670,
+		:port  => 16672,
 		:host  => "localhost",
 		:log   => nil,
 		:debug => false,
@@ -772,7 +815,7 @@ if __FILE__ == $0
 	opts[:logger] = Logger.new(opts[:log], "daily")
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
-#	def daemonize(foreground=false)
+#	def daemonize(foreground = false)
 #		trap("SIGINT")  { exit! 0 }
 #		trap("SIGTERM") { exit! 0 }
 #		trap("SIGHUP")  { exit! 0 }
@@ -791,7 +834,7 @@ if __FILE__ == $0
 #	end
 
 #	daemonize(opts[:debug] || opts[:foreground]) do
-		Net::IRC::Server.new(opts[:host], opts[:port], WassrIrcGateway, opts).start
+		Net::IRC::Server.new(opts[:host], opts[:port], IdenticaIrcGateway, opts).start
 #	end
 end
 
