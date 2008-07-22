@@ -685,7 +685,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
 
 		uri = api_base.dup
-		uri.path  = path.sub(%r{^/*}, "/") << ".json"
+		uri.path  += "#{path.sub(%r{^/+}, "")}.json"
 		uri.query = q
 
 		@log.debug uri.inspect
