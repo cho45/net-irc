@@ -43,7 +43,7 @@ because NAMES list can't send @ leading nick (it interpreted op.)
 
 Apply ID to each message for make favorites by CTCP ACTION.
 
-	/me fav ID [ID]...
+	/me fav ID [ID...]
 
 <color> can be
 
@@ -136,7 +136,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	def jabber_bot_id
-		"identica@identi.ca"
+		"update@identi.ca"
 	end
 
 	def hourly_limit
@@ -309,8 +309,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when /^(un)?fav(?:ou?rite)?$/
-			method = $1.nil? ? "create" : "destroy"
-			pfx = method == "create" ? "F" : "Unf"
+			method, pfx = $1.nil? ? ["create", "F"] : ["destroy", "Unf"]
 			args.each_with_index do |tid, i|
 				if st = @tmap[tid]
 					sleep 1 if i > 0
@@ -345,7 +344,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 #			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			intervals = @ratio.map {|ratio| freq ratio }
 #			post nil, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
-		when /^de(?:stroy|l(?:ete)?)$/, "remove", "miss"
+		when /^(?:de(?:stroy|l(?:ete)?)|remove|miss)$/
 			args.each_with_index do |tid, i|
 				if st = @tmap[tid]
 					sleep 1 if i > 0
@@ -358,7 +357,8 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 		when "in", "location"
 			location = args.join(" ")
 			api("account/update_location", {"location" => location})
-			post nil, NOTICE, main_channel, "You are in #{location} now."
+			location = location.empty? ? "nowhere" : "in #{location}"
+			post nil, NOTICE, main_channel, "You are #{location} now."
 		end
 	rescue ApiFailed => e
 		log e.inspect
