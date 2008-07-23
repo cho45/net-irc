@@ -195,9 +195,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_rate_limit_thread = Thread.start do
 			loop do
 				begin
-					check_rate_limit
-					sleep 1
 					check_downtime
+					check_rate_limit
 				rescue ApiFailed => e
 					@log.error e.inspect
 				rescue Exception => e
@@ -604,7 +603,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if schedule.nil?
 				msg = "Twitter is back!"
 			else
-				msg  = schedule["error"].split(/\r?\n|\r/).last
+				msg  = schedule.split(/\r?\n|\r/).last
 				uris = URI.extract(msg)
 				uris.each do |uri|
 					msg << " #{uri}"
@@ -612,7 +611,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				msg.gsub!(/<[^>]+>/, "")
 				# TODO: sleeping for the downtime
 			end
-			log "\037#{msg}\017"
+			log "\002\037#{msg}\017"
 		end
 	end
 

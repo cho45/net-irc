@@ -569,7 +569,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			if schedule.nil?
 				msg = "Identi.ca is back!"
 			else
-				msg  = schedule["error"].split(/\r?\n|\r/).last
+				msg  = schedule.split(/\r?\n|\r/).last
 				uris = URI.extract(msg)
 				uris.each do |uri|
 					msg << " #{uri}"
@@ -577,7 +577,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 				msg.gsub!(/<[^>]+>/, "")
 				# TODO: sleeping for the downtime
 			end
-			log "\037#{msg}\017"
+			log "\002\037#{msg}\017"
 		end
 	end
 
