@@ -569,7 +569,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			if schedule.nil?
 				msg = "Identi.ca is back!"
 			else
-				msg  = schedule.split(/\r?\n|\r/).last
+				msg  = schedule.gsub(%r{[\r\n]|<style(?:\s[^>]*)?>.*?</style\s*>}m, "")
 				uris = URI.extract(msg)
 				uris.each do |uri|
 					msg << " #{uri}"
