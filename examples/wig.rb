@@ -300,7 +300,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			end
 
 			unless res
-				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when "fav"
 			target = args[0]
@@ -331,18 +331,18 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				res = api("favorites/create/#{id}", {})
-				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
+				post server_name, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
 			else
-				post nil, NOTICE, main_channel, "No such id or status #{target}"
+				post server_name, NOTICE, main_channel, "No such id or status #{target}"
 			end
 		when "link"
 			tid = args[0]
 			st  = @tmap[tid]
 			if st
 				st["link"] = (api_base + "/#{st["user"]["screen_name"]}/statuses/#{st["id"]}").to_s unless st["link"]
-				post nil, NOTICE, main_channel, st["link"]
+				post server_name, NOTICE, main_channel, st["link"]
 			else
-				post nil, NOTICE, main_channel, "No such id #{tid}"
+				post server_name, NOTICE, main_channel, "No such id #{tid}"
 			end
 		end
 	rescue ApiFailed => e
@@ -353,12 +353,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		nick = m.params[0]
 		f = (@friends || []).find {|i| i["screen_name"] == nick }
 		if f
-			post nil, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
-			post nil, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
-			post nil, RPL_WHOISIDLE,   @nick, nick, "0", "seconds idle"
-			post nil, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
+			post server_name, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
+			post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
+			post server_name, RPL_WHOISIDLE,   @nick, nick, "0", "seconds idle"
+			post server_name, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
 		else
-			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -373,7 +373,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				}
 				post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
 			else
-				post nil, ERR_NOSUCHNICK, channel, "No such nick/channel"
+				post server_name, ERR_NOSUCHNICK, channel, "No such nick/channel"
 			end
 		end
 	end
@@ -396,20 +396,20 @@ class WassrIrcGateway < Net::IRC::Server::Session
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
+				post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, @nick, channel
+			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
 				f = @friends.find {|i| i["screen_name"] == name }
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
+				post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, @nick, channel
+			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
-			post nil, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
 		end
 	end
 
@@ -508,8 +508,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		friends = api("statuses/friends")
 		if first && !@opts.key?("athack")
 			@friends = friends
-			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
-			post nil, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
+			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
+			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
