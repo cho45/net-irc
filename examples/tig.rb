@@ -23,7 +23,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid=10 ratio=32:1 replies=6
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid ratio=32:1 replies=6 maxlimit=70
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -40,7 +40,7 @@ it's good for Twitter like reply command (@nick).
 In this case, you will see torrent of join messages after connected,
 because NAMES list can't send @ leading nick (it interpreted op.)
 
-### tid=<color>
+### tid[=<color>]
 
 Apply ID to each message for make favorites by CTCP ACTION.
 
@@ -328,7 +328,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post nick, NOTICE, main_channel, "#{generate_status_message(s)}"
 			end
 			unless res
-				post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when /^(un)?fav(?:ou?rite)?$/
 			method, pfx = $1.nil? ? ["create", "F"] : ["destroy", "Unf"]
@@ -336,28 +336,28 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				if st = @tmap[tid]
 					sleep 1 if i > 0
 					res = api("favorites/#{method}/#{st["id"]}", {})
-					post nil, NOTICE, main_channel, "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
+					post server_name, NOTICE, main_channel, "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
 				else
-					post nil, NOTICE, main_channel, "No such ID #{tid}"
+					post server_name, NOTICE, main_channel, "No such ID #{tid}"
 				end
 			end
 		when "link", "ln"
 			args.each do |tid|
 				if st = @tmap[tid]
 					st["link"] = "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}" unless st["link"]
-					post nil, NOTICE, main_channel, st["link"]
+					post server_name, NOTICE, main_channel, st["link"]
 				else
-					post nil, NOTICE, main_channel, "No such ID #{tid}"
+					post server_name, NOTICE, main_channel, "No such ID #{tid}"
 				end
 			end
 #		when /^ratios?$/
 #			if args[1].nil? ||
 #			   @opts.key?("replies") && args[2].nil?
-#				return post nil, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
+#				return post server_name, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
 #			end
 #			ratios = args.map {|ratio| ratio.to_f }
 #			if ratios.any? {|ratio| ratio <= 0.0 }
-#				return post nil, NOTICE, main_channel, "Ratios must be greater than 0."
+#				return post server_name, NOTICE, main_channel, "Ratios must be greater than 0."
 #			end
 #			footing = ratios.inject {|sum, ratio| sum + ratio }
 #			@ratio[:timeline] = ratios[0]
@@ -365,22 +365,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			@ratio[:replies]  = ratios[2] || 0.0
 #			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			intervals = @ratio.map {|ratio| freq ratio }
-#			post nil, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
+#			post server_name, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
 		when /^(?:de(?:stroy|l(?:ete)?)|remove|miss)$/
 			args.each_with_index do |tid, i|
 				if st = @tmap[tid]
 					sleep 1 if i > 0
 					res = api("statuses/destroy/#{st["id"]}")
-					post nil, NOTICE, main_channel, "Destroyed: #{res["text"]}"
+					post server_name, NOTICE, main_channel, "Destroyed: #{res["text"]}"
 				else
-					post nil, NOTICE, main_channel, "No such ID #{tid}"
+					post server_name, NOTICE, main_channel, "No such ID #{tid}"
 				end
 			end
 		when "in", "location"
 			location = args.join(" ")
 			api("account/update_location", {"location" => location})
 			location = location.empty? ? "nowhere" : "in #{location}"
-			post nil, NOTICE, main_channel, "You are #{location} now."
+			post server_name, NOTICE, main_channel, "You are #{location} now."
 		end
 	rescue ApiFailed => e
 		log e.inspect
@@ -390,12 +390,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick = m.params[0]
 		f = (@friends || []).find {|i| i["screen_name"] == nick }
 		if f
-			post nil, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
-			post nil, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
-			post nil, RPL_WHOISIDLE,   @nick, nick, "0", "seconds idle"
-			post nil, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
+			post server_name, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
+			post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
+			post server_name, RPL_WHOISIDLE,   @nick, nick, "0", "seconds idle"
+			post server_name, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
 		else
-			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -410,20 +410,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
+				post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, @nick, channel
+			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
 				f = @friends.find {|i| i["screen_name"] == name }
 				user = nick = f["screen_name"]
 				host = serv = api_base.host
 				real = f["name"]
-				post nil, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
+				post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
 			end
-			post nil, RPL_ENDOFWHO, @nick, channel
+			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
-			post nil, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
 		end
 	end
 
@@ -477,35 +477,35 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		time = @prev_time_f || Time.at(0)
-		@prev_time_f = Time.now
-		api("statuses/friends_timeline", {"since" => time.httpdate, "count" => "100"}).reverse_each do |s|
+		since_id = @timeline.last.to_s
+		api("statuses/friends_timeline", {:since_id => since_id, :count => "117"}).reverse_each do |s|
 			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
+
 			@timeline << id
 			nick = s["user"]["screen_name"]
 			mesg = generate_status_message(s)
-
-			tid = @tmap.push(s)
+			tid  = @tmap.push(s)
 
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは TOPIC に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
-				if @opts["tid"]
-					message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
-				else
-					message(nick, main_channel, "%s" % [mesg, tid])
+				if @opts.key?("tid")
+					mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
 				end
+				message(nick, main_channel, mesg)
 			end
 			@groups.each do |channel, members|
-				if members.include?(nick)
-					message(nick, channel, "%s [%s]" % [mesg, tid])
+				next unless members.include?(nick)
+				if @opts.key?("tid")
+					mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
 				end
+				message(nick, channel, mesg)
 			end
 		end
 		@log.debug "@timeline.size = #{@timeline.size}"
-		@timeline = @timeline.last(100)
+		@timeline = @timeline.last(200)
 	end
 
 	def generate_status_message(status)
@@ -515,7 +515,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		# time = Time.parse(s["created_at"]) rescue Time.now
 		m = {"&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " "}
-		mesg.gsub!(/(#{m.keys.join("|")})/) { m[$1] }
+		mesg.gsub!(/#{m.keys.join("|")}/) { m[$&] }
 		mesg
 	end
 
@@ -525,23 +525,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		api("statuses/replies").reverse_each do |s|
 			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
+
 			created_at = Time.parse(s["created_at"]) rescue next
 			next if created_at < time
-			@timeline << id
+
 			nick = s["user"]["screen_name"]
 			mesg = generate_status_message(s)
-
-			tid = @tmap.push(s)
+			tid  = @tmap.push(s)
 
 			@log.debug [id, nick, mesg]
-			if @opts["tid"]
-				message(nick, main_channel, "%s \x03%s [%s]" % [mesg, @opts["tid"], tid])
-			else
-				message(nick, main_channel, "%s" % mesg)
+			if @opts.key?("tid")
+				mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
 			end
+			message nick, main_channel, mesg
 		end
-		@log.debug "@timeline.size = #{@timeline.size}"
-		@timeline = @timeline.last(100)
 	end
 
 	def check_direct_messages
@@ -562,8 +559,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		friends = api("statuses/friends")
 		if first && !@opts.key?("athack")
 			@friends = friends
-			post nil, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
-			post nil, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
+			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
+			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
 			now_friends = friends.map {|i| i["screen_name"] }
@@ -598,25 +595,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_downtime
 		@prev_downtime ||= nil
 		schedule = api("help/downtime_schedule", {}, {:avoid_error => true})["error"]
-		if @prev_downtime != schedule
-			@prev_downtime = schedule
-			if schedule.nil?
-				msg = "Twitter is back!"
-			else
-				msg  = schedule.gsub(%r{[\r\n]|<style(?:\s[^>]*)?>.*?</style\s*>}m, "")
-				uris = URI.extract(msg)
-				uris.each do |uri|
-					msg << " #{uri}"
-				end
-				msg.gsub!(/<[^>]+>/, "")
-				# TODO: sleeping for the downtime
+		if @prev_downtime != schedule && @prev_downtime = schedule
+			msg  = schedule.gsub(%r{[\r\n]|<style(?:\s[^>]*)?>.*?</style\s*>}m, "")
+			uris = URI.extract(msg)
+			uris.each do |uri|
+				msg << " #{uri}"
 			end
+			msg.gsub!(/<[^>]+>/, "")
 			log "\002\037#{msg}\017"
+			# TODO: sleeping for the downtime
 		end
 	end
 
 	def freq(ratio)
-		max   = (@opts["maxlimit"] || 300).to_i
+		max   = (@opts["maxlimit"] || 100).to_i
 		limit = @hourly_limit < max ? @hourly_limit : max
 		f     = 3600 / (limit * ratio).round
 		@log.debug "Frequency: #{f}"
@@ -751,7 +743,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TypableMap < Hash
-		Roma = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
+		Roman = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
 			case
 			when consonant.size > 1, consonant == "y"
 				%w|a u o|
@@ -763,7 +755,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		}.flatten
 
 		def initialize(size = 1)
-			@seq  = Roma
+			@seq  = Roman
 			@map  = {}
 			@n    = 0
 			@size = size
