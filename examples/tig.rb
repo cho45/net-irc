@@ -90,6 +90,10 @@ Use IM instead of any APIs (e.g. post)
 
 ### checkrls=<interval seconds>
 
+### secure
+
+Force SSL for API.
+
 ## License
 
 Ruby's by cho45
@@ -333,9 +337,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when /^(un)?fav(?:ou?rite)?$/
 			method, pfx = $1.nil? ? ["create", "F"] : ["destroy", "Unf"]
 			args.each_with_index do |tid, i|
-				if st = @tmap[tid]
+				st = @tmap[tid]
+				if st
 					sleep 1 if i > 0
-					res = api("favorites/#{method}/#{st["id"]}", {})
+					res = api("favorites/#{method}/#{st["id"]}")
 					post server_name, NOTICE, main_channel, "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
 				else
 					post server_name, NOTICE, main_channel, "No such ID #{tid}"
@@ -343,7 +348,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		when "link", "ln"
 			args.each do |tid|
-				if st = @tmap[tid]
+				st = @tmap[tid]
+				if st
 					st["link"] = "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}" unless st["link"]
 					post server_name, NOTICE, main_channel, st["link"]
 				else
@@ -368,7 +374,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			post server_name, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
 		when /^(?:de(?:stroy|l(?:ete)?)|remove|miss)$/
 			args.each_with_index do |tid, i|
-				if st = @tmap[tid]
+				st = @tmap[tid]
+				if st
 					sleep 1 if i > 0
 					res = api("statuses/destroy/#{st["id"]}")
 					post server_name, NOTICE, main_channel, "Destroyed: #{res["text"]}"
@@ -477,8 +484,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		since_id = @timeline.last.to_s
-		api("statuses/friends_timeline", {:since_id => since_id, :count => "117"}).reverse_each do |s|
+		q = {:count => "117"}
+		q[:since_id] = @timeline.last.to_s if @timeline.last
+		api("statuses/friends_timeline", q).reverse_each do |s|
 			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
 
@@ -664,37 +672,46 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	rescue Errno::ENOENT
 	end
 
+	def require_post?(path)
+		[
+			%r{^statuses/(?:update$|destroy/)},
+			"direct_messages/new",
+			"account/update_location",
+			%r{^favorites/},
+		].any? {|i| i === path }
+	end
+
 	def api(path, q = {}, opt = {})
 		ret     = {}
-		headers = {
-			"User-Agent"    => @user_agent,
-			"Authorization" => "Basic " + ["#{@real}:#{@pass}"].pack("m"),
-		}
+		headers = {"User-Agent" => @user_agent}
 		headers["If-Modified-Since"] = q["since"] if q.key?("since")
 
 		q["source"] ||= api_source
-		q = q.inject([]) {|r,(k,v)| v.inject(r) {|r,i| r << "#{k}=#{URI.escape(i, /[^-.!~*'()\w]/n)}" } }.join("&")
+		q = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 
-		uri = api_base.dup
-		uri.path  += "#{path.sub(%r{^/+}, "")}.json"
-		uri.query = q
-
+		path = path.sub(%r{^/+}, "")
+		uri  = api_base.dup
+		if @opts.key?("secure")
+			uri.scheme = "https"
+			uri.port   = 443
+		end
+		uri.path += "#{path}.json"
+		if require_post? path
+			req = Net::HTTP::Post.new(uri.request_uri, headers)
+			req.body = q
+		else
+			uri.query = q
+			req = Net::HTTP::Get.new(uri.request_uri, headers)
+		end
+		req.basic_auth(@real, @pass)
 		@log.debug uri.inspect
+
 		http = Net::HTTP.new(uri.host, uri.port)
 		if uri.scheme == "https"
 			http.use_ssl     = true
 			http.verify_mode = OpenSSL::SSL::VERIFY_NONE # FIXME
 		end
-		http.start do
-			case uri.path
-			when "/statuses/update.json", "/direct_messages/new.json"
-				ret = http.post(uri.request_uri, q, headers)
-			else
-				ret = http.get(uri.request_uri, headers)
-			end
-		end
-
-		case ret
+		case ret = http.request(req)
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
 			if ret.kind_of?(Hash) && !opt[:avoid_error] && ret["error"]

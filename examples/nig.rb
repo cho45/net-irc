@@ -63,7 +63,7 @@ class NowaIrcGateway < TwitterIrcGateway
 	end
 
 	def api_base
-		URI("https://api.nowa.jp/")
+		URI("https://api.nowa.jp:443/")
 	end
 
 	def api_source
