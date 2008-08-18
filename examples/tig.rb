@@ -350,8 +350,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			args.each do |tid|
 				st = @tmap[tid]
 				if st
-					st["link"] = "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}" unless st["link"]
-					post server_name, NOTICE, main_channel, st["link"]
+					post server_name, NOTICE, main_channel, "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}"
 				else
 					post server_name, NOTICE, main_channel, "No such ID #{tid}"
 				end
@@ -372,7 +371,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			intervals = @ratio.map {|ratio| freq ratio }
 #			post server_name, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
-		when /^(?:de(?:stroy|l(?:ete)?)|remove|miss)$/
+		when /^(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))$/ # destroy, delete, del, remove, rm, miss, oops
 			args.each_with_index do |tid, i|
 				st = @tmap[tid]
 				if st
@@ -384,10 +383,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		when "in", "location"
-			location = args.join(" ")
-			api("account/update_location", {"location" => location})
+			location = message.split(/\s+/, 3)[2]
+			api("account/update_location", {:location => location})
 			location = location.empty? ? "nowhere" : "in #{location}"
 			post server_name, NOTICE, main_channel, "You are #{location} now."
+		when "re"
+			tid = args.first
+			st  = @tmap[tid]
+			if st
+				msg = message.split(/\s+/, 4)[3]
+				ret = api("statuses/update", {:status => msg, :in_reply_to_status_id => "#{st["id"]}"})
+				if ret
+					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
+				end
+			end
 		end
 	rescue ApiFailed => e
 		log e.inspect
@@ -495,20 +504,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = generate_status_message(s)
 			tid  = @tmap.push(s)
 
+			if @opts.key?("tid")
+				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
+			end
+
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは TOPIC に
 				post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
 			else
-				if @opts.key?("tid")
-					mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
-				end
 				message(nick, main_channel, mesg)
 			end
 			@groups.each do |channel, members|
 				next unless members.include?(nick)
-				if @opts.key?("tid")
-					mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
-				end
 				message(nick, channel, mesg)
 			end
 		end
@@ -541,10 +548,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = generate_status_message(s)
 			tid  = @tmap.push(s)
 
-			@log.debug [id, nick, mesg]
 			if @opts.key?("tid")
-				mesg = "%s \x03%s [%s]" % [mesg, @opts["tid"] || 10, tid]
+				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
 			end
+
+			@log.debug [id, nick, mesg]
 			message nick, main_channel, mesg
 		end
 	end
