@@ -47,6 +47,11 @@ class GmailNotifier < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
+		super
+		case m[1]
+		when 'list'
+			check_mail
+		end
 	end
 
 	def on_ctcp(target, message)
@@ -81,8 +86,8 @@ class GmailNotifier < Net::IRC::Server::Session
 						else
 							db[id] = "1"
 						end
-						post server_name, NOTICE, main_channel, "Subject: #{item.text('title')} From: #{item.text('author/name')}"
-						post server_name, NOTICE, main_channel, "#{item.text('summary')}"
+						post server_name, PRIVMSG, main_channel, "Subject: #{item.text('title')} From: #{item.text('author/name')}"
+						post server_name, PRIVMSG, main_channel, "#{item.text('summary')}"
 					end
 				rescue Exception => e
 					@log.error e.inspect
@@ -91,6 +96,29 @@ class GmailNotifier < Net::IRC::Server::Session
 				end
 				sleep 60 * 5
 			end
+		end
+	end
+
+	def check_mail
+		begin
+			@agent.auth(@real, @pass)
+			page = @agent.get(URI.parse("https://gmail.google.com/gmail/feed/atom"))
+			feed = REXML::Document.new page.body
+			db = SDBM.open("#{Dir.tmpdir}/#{@real}.db", 0666)
+			feed.get_elements('/feed/entry').reverse.each do |item|
+				id = item.text('id')
+				if db.include?(id)
+					#next
+				else
+					db[id] = "1"
+				end
+				post server_name, PRIVMSG, main_channel, "Subject: #{item.text('title')} From: #{item.text('author/name')}"
+				post server_name, PRIVMSG, main_channel, "#{item.text('summary')}"
+			end
+		rescue Exception => e
+			@log.error e.inspect
+		ensure
+			db.close rescue nil
 		end
 	end
 end
