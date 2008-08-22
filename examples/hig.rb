@@ -202,7 +202,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		return if @opts["jabber"]
 
 		@check_timeline_thread = Thread.start do
-			sleep 3
+			sleep 10
 			loop do
 				begin
 					check_timeline
@@ -245,6 +245,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 				log "Status Updated via API"
 			end
 			raise ApiFailed, "API failed" unless ret
+			check_timeline
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
 			if retry_count > 0
@@ -387,9 +388,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	private
 	def check_timeline
 		@prev_time ||= Time.at(0)
-		since = @prev_time
-		@prev_time = Time.now
-		api("statuses/friends_timeline", {"since" => since.httpdate}).reverse_each do |s|
+		api("statuses/friends_timeline", {"since" => @prev_time.httpdate }).reverse_each do |s|
 			begin
 				id = s["id"]
 				next if id.nil? || @timeline.include?(id)
@@ -423,6 +422,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 				@log.debug "Error: %p" % e
 			end
 		end
+		@prev_time = Time.now
 		@log.debug "@timeline.size = #{@timeline.size}"
 		@timeline  = @timeline.last(100)
 	end
@@ -430,7 +430,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	def generate_status_message(s)
 		mesg = s["text"]
 		mesg.sub!("#{s["keyword"]}=", "") unless s["keyword"] =~ /^id:/
-		mesg << " > #{s["in_reply_to_user_id"]}" if s["in_reply_to_user_id"]
+		mesg << " > #{s["in_reply_to_user_id"]}" unless s["in_reply_to_user_id"].empty?
 
 		@log.debug(mesg)
 		mesg
@@ -548,7 +548,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 
 		uri = api_base.dup
 		uri.path  = "/api/#{path}.json"
-		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
+		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^:,-.!~*'()\w]/n)}" : r }.join("&")
 
 
 		req = nil
@@ -568,7 +568,6 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		case ret
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body.gsub(/:'/, ':"').gsub(/',/, '",').gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
-		@prev_time = Time.now
 			raise ApiFailed, "Server Returned Error: #{ret["error"]}" if ret.kind_of?(Hash) && ret["error"]
 			ret
 		when Net::HTTPNotModified # 304
