@@ -301,7 +301,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				res = api("favorites/create/#{id}", {})
-				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
+				post nil, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"].gsub(URI.regexp(%w|http https|), "http...")}"
 			else
 				post nil, NOTICE, main_channel, "No such id or status #{target}"
 			end
