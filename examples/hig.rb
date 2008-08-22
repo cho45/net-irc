@@ -388,7 +388,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	private
 	def check_timeline
 		@prev_time ||= Time.at(0)
-		api("statuses/friends_timeline", {"since" => @prev_time.httpdate }).reverse_each do |s|
+		api("statuses/public_timeline", {"since" => @prev_time.httpdate }).reverse_each do |s|
 			begin
 				id = s["id"]
 				next if id.nil? || @timeline.include?(id)
@@ -595,7 +595,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	# return rid of most recent matched status with text
 	def rid_for(text)
 		target = Regexp.new(Regexp.quote(text.strip), "i")
-		status = api("statuses/friends_timeline").find {|i|
+		status = api("statuses/public_timeline").find {|i|
 			next false if i["user"]["name"] == @nick # 自分は除外
 			i["text"] =~ target
 		}
