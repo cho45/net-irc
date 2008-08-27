@@ -387,8 +387,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		@prev_time ||= Time.at(0)
-		api("statuses/friends_timeline", {"since" => @prev_time.httpdate }).reverse_each do |s|
+		api("statuses/friends_timeline").reverse_each do |s|
 			begin
 				id = s["id"]
 				next if id.nil? || @timeline.include?(id)
@@ -422,7 +421,6 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 				@log.debug "Error: %p" % e
 			end
 		end
-		@prev_time = Time.now
 		@log.debug "@timeline.size = #{@timeline.size}"
 		@timeline  = @timeline.last(100)
 	end
