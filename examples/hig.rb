@@ -406,7 +406,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 					channel = main_channel
 				when !@channels.keys.include?(channel)
 					channel = main_channel
-					mesg = "%s: %s" % [s["keyword"], mesg]
+					mesg = "%s = %s" % [s["keyword"], mesg]
 				end
 
 				if nick == @nick # 自分のときは topic に
