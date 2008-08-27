@@ -258,6 +258,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#(.+)/
 				channel = Regexp.last_match[1]
 				reply   = message[/\s+>(.+)$/, 1]
+				message = Iconv.iconv("UTF-7", "UTF-8", message).join if @utf7
 				if !reply && @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
 					message = "##{channel} #{message}" unless "##{channel}" == main_channel
 					ret = @im.deliver(jabber_bot_id, message)
@@ -291,6 +292,14 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	def on_ctcp(target, message)
 		_, command, *args = message.split(/\s+/)
 		case command
+		when "utf7"
+			begin
+				require "iconv"
+				@utf7 = !@utf7
+				log "utf7 mode: #{@utf7 ? 'on' : 'off'}"
+			rescue LoadError => e
+				log "Can't load iconv."
+			end
 		when "list"
 			nick = args[0]
 			@log.debug([ nick, message ])
@@ -470,6 +479,14 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		mesg = s["text"]
 		@log.debug(mesg)
 
+		begin
+			require 'iconv'
+			mesg    = mesg.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
+		rescue LoadError
+		rescue Iconv::IllegalSequence
+		end
+
 		# added @user in no use @user reply message (Wassr only)
 		if s.has_key?("reply_status_url") and s["reply_status_url"] and s["text"] !~ /^@.*/ and %r{([^/]+)/statuses/[^/]+}.match(s["reply_status_url"])
 			reply_user_id = $1
@@ -550,6 +567,13 @@ class WassrIrcGateway < Net::IRC::Server::Session
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
 								body = CGI.unescapeHTML(body)
+								begin
+									require 'iconv'
+									body    = body.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+									body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
+								rescue LoadError
+								rescue Iconv::IllegalSequence
+								end
 
 								case
 								when nick == "投稿完了"
