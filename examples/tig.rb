@@ -292,6 +292,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
+		message = Iconv.iconv("UTF-7", "UTF-8", message).join if @utf7
 		begin
 			if target =~ /^#/
 				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
@@ -321,6 +322,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_ctcp(target, message)
 		_, command, *args = message.split(/\s+/)
 		case command
+		when "utf7"
+			begin
+				require "iconv"
+				@utf7 = !@utf7
+				log "utf7 mode: #{@utf7 ? 'on' : 'off'}"
+			rescue LoadError => e
+				log "Can't load iconv."
+			end
 		when "list", "ls"
 			nick = args[0]
 			unless (1..200).include?(count = args[1].to_i)
@@ -528,6 +537,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mesg = s["text"]
 		@log.debug(mesg)
 
+		begin
+			require 'iconv'
+			mesg    = mesg.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
+		rescue LoadError
+		rescue Iconv::IllegalSequence
+		end
+
 		# time = Time.parse(s["created_at"]) rescue Time.now
 		m = {"&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " "}
 		mesg.gsub!(/#{m.keys.join("|")}/) { m[$&] }
@@ -643,6 +660,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						if msg.from.strip == jabber_bot_id
 							# Twitter -> 'id: msg'
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
+
+							begin
+								require 'iconv'
+								body    = body.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+								body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
+							rescue LoadError
+							rescue Iconv::IllegalSequence
+							end
+
 							if Regexp.last_match
 								nick, id = Regexp.last_match.captures
 								body = CGI.unescapeHTML(body)
