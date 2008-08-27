@@ -337,7 +337,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		channels.each do |channel|
 			next if channel == main_channel
 			begin
-				api("keywords/create/#{URI.escape(channel.sub(/^#/, ""))}.json")
+				api("keywords/create/#{URI.escape(channel.sub(/^#/, ""))}")
 				@channels[channel] = {
 					:read => []
 				}
@@ -353,7 +353,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return if channel == main_channel
 		@channels.delete(channel)
-		api("keywords/destroy/#{URI.escape(channel.sub(/^#/, ""))}.json")
+		api("keywords/destroy/#{URI.escape(channel.sub(/^#/, ""))}")
 		post "#{@nick}!#{@nick}@#{api_base.host}", PART, channel
 	end
 
