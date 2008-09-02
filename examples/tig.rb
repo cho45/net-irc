@@ -809,7 +809,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def untinyurl(text)
-		text.gsub(%r"http://(?:(?:preview\.)?tin|rub)yurl\.com/[0-9a-z=]+"i) {|m|
+		text.gsub(%r"http://(?:(preview\.)?tin|rub)yurl\.com/[0-9a-z=]+"i) {|m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
 			Net::HTTP.start(uri.host, uri.port) {|http|
