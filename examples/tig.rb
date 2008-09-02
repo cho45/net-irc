@@ -94,6 +94,37 @@ Use IM instead of any APIs (e.g. post)
 
 Force SSL for API.
 
+## Extended commands through the CTCP ACTION
+
+### list (ls)
+
+	/me list NICK_or_screen_name
+
+### fav (favorite, favourite, unfav, unfavorite, unfavourite)
+
+	/me fav ID [ID...]
+	/me unfav ID [ID...]
+
+### link (ln)
+
+	/me link ID [ID...]
+
+### destroy (del, delete, miss, oops, remove, rm)
+
+	/me destroy ID [ID...]
+
+### in (location)
+
+	/me in Tokyo, Japan
+
+### reply (re)
+
+	/me reply ID blah, blah...
+
+### utf7
+
+   /me utf7
+
 ## License
 
 Ruby's by cho45
@@ -326,7 +357,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			begin
 				require "iconv"
 				@utf7 = !@utf7
-				log "utf7 mode: #{@utf7 ? 'on' : 'off'}"
+				log "UTF-7 mode: #{@utf7 ? 'on' : 'off'}"
 			rescue LoadError => e
 				log "Can't load iconv."
 			end
@@ -396,7 +427,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			api("account/update_location", {:location => location})
 			location = location.empty? ? "nowhere" : "in #{location}"
 			post server_name, NOTICE, main_channel, "You are #{location} now."
-		when "re"
+		when /^re(?:ply)?$/
 			tid = args.first
 			st  = @tmap[tid]
 			if st
@@ -721,7 +752,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		headers["If-Modified-Since"] = q["since"] if q.key?("since")
 
 		q["source"] ||= api_source
-		q = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 
 		path = path.sub(%r{^/+}, "")
 		uri  = api_base.dup
@@ -730,11 +760,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			uri.port   = 443
 		end
 		uri.path += "#{path}.json"
+		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 		if require_post? path
-			req = Net::HTTP::Post.new(uri.request_uri, headers)
-			req.body = q
+			req = Net::HTTP::Post.new(uri.path, headers)
+			req.body = uri.query
 		else
-			uri.query = q
 			req = Net::HTTP::Get.new(uri.request_uri, headers)
 		end
 		req.basic_auth(@real, @pass)
@@ -779,7 +809,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def untinyurl(text)
-		text.gsub(%r"http://(?:(?:preview\.)?tinyurl\.com|rubyurl\.com)/[0-9a-z=]+"i) {|m|
+		text.gsub(%r"http://(?:(preview\.)?tin|rub)yurl\.com)/[0-9a-z=]+"i) {|m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
 			Net::HTTP.start(uri.host, uri.port) {|http|

@@ -132,7 +132,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api_source
-		"iigrb"
+		"iig.rb"
 	end
 
 	def jabber_bot_id
