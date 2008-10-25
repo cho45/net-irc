@@ -138,7 +138,6 @@ $KCODE = "u" # json use this
 
 require "rubygems"
 require "net/irc"
-require "net/http"
 require "net/https"
 require "uri"
 require "json"
@@ -366,10 +365,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
 			end
-			@log.debug([ nick, message ])
+			@log.debug([nick, message])
+			to = nick == @nick ? server_name : nick
 			res = api("statuses/user_timeline", {"id" => nick, "count" => "#{count}"}).reverse_each do |s|
 				@log.debug(s)
-				post nick, NOTICE, main_channel, "#{generate_status_message(s)}"
+				post to, NOTICE, main_channel, "#{generate_status_message(s)}"
 			end
 			unless res
 				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
@@ -739,11 +739,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def require_post?(path)
 		[
-			%r{^statuses/(?:update$|destroy/)},
+			"statuses/update",
 			"direct_messages/new",
 			"account/update_location",
-			%r{^favorites/},
+			%r{^favorites/create/},
 		].any? {|i| i === path }
+	end
+
+	def require_delete?(path)
+		%r{^(?:favou?ri(?:ing|tes)|statuses)/destroy/} === path
 	end
 
 	def api(path, q = {}, opt = {})
@@ -761,8 +765,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		uri.path += "#{path}.json"
 		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
-		if require_post? path
+		case
+		when require_post?(path)
 			req = Net::HTTP::Post.new(uri.path, headers)
+			req.body = uri.query
+		when require_delete?(path)
+			req = Net::HTTP::Delete.new(uri.path, headers)
 			req.body = uri.query
 		else
 			req = Net::HTTP::Get.new(uri.request_uri, headers)
