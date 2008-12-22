@@ -329,11 +329,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
-					ret = api("statuses/update", {"status" => message})
+					ret = api("statuses/update", { :status => message })
 				end
 			else
 				# direct message
-				ret = api("direct_messages/new", {"user" => target, "text" => message})
+				ret = api("direct_messages/new", { :user => target, :text => message })
 			end
 			raise ApiFailed, "API failed" unless ret
 			log "Status Updated"
@@ -361,13 +361,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Can't load iconv."
 			end
 		when "list", "ls"
-			nick = args[0]
+			nick = args.first
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
 			end
 			@log.debug([nick, message])
 			to = nick == @nick ? server_name : nick
-			res = api("statuses/user_timeline", {"id" => nick, "count" => "#{count}"}).reverse_each do |s|
+			res = api("statuses/user_timeline", { :id => nick, :count => "#{count}" }).reverse_each do |s|
 				@log.debug(s)
 				post to, NOTICE, main_channel, "#{generate_status_message(s)}"
 			end
@@ -422,17 +422,48 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					post server_name, NOTICE, main_channel, "No such ID #{tid}"
 				end
 			end
+		when "name"
+			name = message.split(/\s+/, 3)[2]
+			unless  name.nil?
+				api("account/update_profile", { :name => name })
+				post server_name, NOTICE, main_channel, "You are named #{name}."
+			end
+		when "email"
+			# FIXME
+			email = args.first
+			unless email.nil?
+				api("account/update_profile", { :email => email })
+			end
+		when "url"
+			# FIXME
+			url = args.first || ""
+			api("account/update_profile", { :url => url })
 		when "in", "location"
-			location = message.split(/\s+/, 3)[2]
-			api("account/update_location", {:location => location})
+			location = message.split(/\s+/, 3)[2] || ""
+			api("account/update_profile", { :location => location })
 			location = location.empty? ? "nowhere" : "in #{location}"
 			post server_name, NOTICE, main_channel, "You are #{location} now."
+		when /^desc(?:ription)?$/
+			# FIXME
+			description = message.split(/\s+/, 3)[2] || ""
+			api("account/update_profile", { :description => description })
+		when /^colou?rs?$/
+			# FIXME
+			# bg, text, link, fill and border
+		when "image", "img"
+			# FIXME
+			url = args.first
+			# TODO: DCC SEND
+		when "follow"
+			# FIXME
+		when "leave"
+			# FIXME
 		when /^re(?:ply)?$/
 			tid = args.first
 			st  = @tmap[tid]
 			if st
 				msg = message.split(/\s+/, 4)[3]
-				ret = api("statuses/update", {:status => msg, :in_reply_to_status_id => "#{st["id"]}"})
+				ret = api("statuses/update", { :status => msg, :in_reply_to_status_id => "#{st["id"]}" })
 				if ret
 					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
 				end
@@ -533,7 +564,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		q = {:count => "117"}
+		q = { :count => "117" }
 		q[:since_id] = @timeline.last.to_s if @timeline.last
 		api("statuses/friends_timeline", q).reverse_each do |s|
 			id = s["id"]
@@ -569,7 +600,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.debug(mesg)
 
 		begin
-			require 'iconv'
+			require "iconv"
 			mesg    = mesg.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
 			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
 		rescue LoadError
@@ -577,7 +608,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		# time = Time.parse(s["created_at"]) rescue Time.now
-		m = {"&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " "}
+		m = { "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " " }
 		mesg.gsub!(/#{m.keys.join("|")}/) { m[$&] }
 		mesg
 	end
@@ -608,7 +639,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_direct_messages
 		time = @prev_time_d || Time.now
 		@prev_time_d = Time.now
-		api("direct_messages", {"since" => time.httpdate}).reverse_each do |s|
+		api("direct_messages", { :since => time.httpdate }).reverse_each do |s|
 			nick = s["sender_screen_name"]
 			mesg = s["text"]
 			time = Time.parse(s["created_at"])
@@ -658,7 +689,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_downtime
 		@prev_downtime ||= nil
-		schedule = api("help/downtime_schedule", {}, {:avoid_error => true})["error"]
+		schedule = api("help/downtime_schedule", {}, { :suppress_errors => true })["error"]
 		if @prev_downtime != schedule && @prev_downtime = schedule
 			msg  = schedule.gsub(%r{[\r\n]|<style(?:\s[^>]*)?>.*?</style\s*>}m, "")
 			uris = URI.extract(msg)
@@ -693,7 +724,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 							body = msg.body.sub(/^(.+?)(?:\((.+?)\))?: /, "")
 
 							begin
-								require 'iconv'
+								require "iconv"
 								body    = body.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
 								body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
 							rescue LoadError
@@ -738,21 +769,35 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def require_post?(path)
-		[
-			"statuses/update",
-			"direct_messages/new",
-			"account/update_location",
-			%r{^favorites/create/},
-		].any? {|i| i === path }
+		%r{
+			^
+			(?: status(?:es)?/update $
+			  | direct_messages/new $
+			  | friendships/create/
+			  | account/ (?: end_session $
+			               | update_ )
+			  | favou?ri(?:ing|tes)/create/
+			  | notifications/
+			  | blocks/create/ )
+		}x === path
 	end
 
 	def require_delete?(path)
-		%r{^(?:favou?ri(?:ing|tes)|statuses)/destroy/} === path
+		#%r{
+		#	^
+		#	(?: status(?:es)?
+		#	  | direct_messages
+		#	  | friendships
+		#	  | favou?ri(?:ing|tes) )
+		#	  | blocks
+		#	/destroy/
+		#}x === path
+		path.include? "/destroy/"
 	end
 
 	def api(path, q = {}, opt = {})
 		ret     = {}
-		headers = {"User-Agent" => @user_agent}
+		headers = { "User-Agent" => @user_agent }
 		headers["If-Modified-Since"] = q["since"] if q.key?("since")
 
 		q["source"] ||= api_source
@@ -786,7 +831,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		case ret = http.request(req)
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
-			if ret.kind_of?(Hash) && !opt[:avoid_error] && ret["error"]
+			if ret.kind_of?(Hash) && !opt[:suppress_errors] && ret["error"]
 				raise ApiFailed, "Server Returned Error: #{ret["error"]}"
 			end
 			ret
@@ -823,7 +868,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			Net::HTTP.start(uri.host, uri.port) {|http|
 				http.open_timeout = 3
 				begin
-					http.head(uri.request_uri, {"User-Agent" => @user_agent})["Location"] || m
+					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
 				rescue Timeout::Error
 					m
 				end
