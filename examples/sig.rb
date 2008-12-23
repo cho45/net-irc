@@ -62,7 +62,7 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 				:topic    => "",
 				:observer => nil,
 			} unless @channels.key?(channel)
-			post @prefix, JOIN, m.params.first
+			post @prefix, JOIN, channel
 			post nil, RPL_NAMREPLY,   @prefix.nick, "=", channel, "@#{@prefix.nick}"
 			post nil, RPL_ENDOFNAMES, @prefix.nick, channel, "End of NAMES list"
 		end
@@ -99,9 +99,10 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 					nsize = File.size(f)
 					if nsize > size
 						@log.debug "follow up log"
-						l = f.gets
-						if grep === l
-							post name, PRIVMSG, chan, l
+						while l = f.gets
+							if grep === l
+								post name, PRIVMSG, chan, l
+							end
 						end
 					end
 					size = nsize
