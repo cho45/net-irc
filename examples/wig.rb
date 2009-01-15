@@ -522,7 +522,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	def check_friends
 		first = true unless @friends
 		@friends ||= []
-		friends = api("statuses/friends")
+		friends = []
+		1.upto(5) do |i|
+			f = api("statuses/friends", {"page" => i.to_s})
+			friends += f
+			break if f.length < 100
+		end
 		if first && !@opts.key?("athack")
 			@friends = friends
 			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
