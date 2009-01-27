@@ -481,7 +481,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		begin
 			require 'iconv'
-			mesg    = mesg.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
 			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
 		rescue LoadError
 		rescue Iconv::IllegalSequence
@@ -574,7 +574,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 								body = CGI.unescapeHTML(body)
 								begin
 									require 'iconv'
-									body    = body.sub(/^.+?(?: > )?/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+									body    = body.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
 									body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
 								rescue LoadError
 								rescue Iconv::IllegalSequence
