@@ -185,6 +185,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		super
 		@groups     = {}
 		@channels   = [] # joined channels (groups)
+		@nicknames  = {}
 		@user_agent = "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"
 		@config     = Pathname.new(ENV["HOME"]) + ".tig"
 		@map        = nil
@@ -352,6 +353,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_ctcp(target, message)
 		_, command, *args = message.split(/\s+/)
 		case command
+		when "call" # /me call <twitter-id> as <nickname>
+			twitter_id = args[0]
+			nickname   = args[2] || args[1] # allow omitting 'as'
+			if nickname "is"
+				@nicknames.delete(twitter_id)
+				post server_name, NOTICE, main_channel, "Removed nickname for #{twitter_id}"
+			else
+				@nicknames[twitter_id] = nickname
+				post server_name, NOTICE, main_channel, "Call #{twitter_id} as #{nickname}"
+			end
 		when "utf7"
 			begin
 				require "iconv"
@@ -852,6 +863,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			[$1 ? $2.hex : $2.to_i].pack("U")
 #		end
 		str    = untinyurl(str)
+		sender = @nicknames[sender] || sender
 		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
 	end
