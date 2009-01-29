@@ -356,7 +356,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when "call" # /me call <twitter-id> as <nickname>
 			twitter_id = args[0]
 			nickname   = args[2] || args[1] # allow omitting 'as'
-			if nickname "is"
+			if nickname == "is"
 				@nicknames.delete(twitter_id)
 				post server_name, NOTICE, main_channel, "Removed nickname for #{twitter_id}"
 			else
