@@ -1,4 +1,7 @@
 #!/usr/bin/env ruby
+# ENCODING=ASCII-8BIT
+# :vim:encoding=utf-8:
+# ↑ どうするのが正解?
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
@@ -229,18 +232,19 @@ describe Net::IRC, "server and client" do
 		@server, @client = nil, nil
 
 		Thread.abort_on_exception = true
-		Thread.start do
+		@tserver = Thread.start do
 			@server = Net::IRC::Server.new("localhost", @port, TestServerSession, {
 				:logger => Logger.new(nil),
 			})
 			@server.start
 		end
 
+		Thread.pass
 		true until @server.instance_variable_get(:@serv)
 
 		@port = @server.instance_variable_get(:@serv).addr[1]
 
-		Thread.start do
+		@tclient = Thread.start do
 			@client = TestClient.new("localhost", @port, {
 				:nick   => "foonick",
 				:user   => "foouser",
@@ -250,6 +254,9 @@ describe Net::IRC, "server and client" do
 			})
 			@client.start
 		end
+
+		Thread.pass
+		true until @client
 	end
 
 	server_q = TestServerSession.testq
@@ -285,41 +292,20 @@ describe Net::IRC, "server and client" do
 				post nil,      NOTICE, "#test", "sep1"
 			end
 		end
+		Thread.pass
 		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
 		client.prefix.should == "foonick"
 	end
 
-	it "should destroy closed session" do
-		oldclient = @client
-		@client.finish
-
-		Thread.start do
-			@client = TestClient.new("localhost", @port, {
-				:nick   => "foonick",
-				:user   => "foouser",
-				:real   => "foo real name",
-				:pass   => "foopass",
-				:logger => Logger.new(nil),
-			})
-			@client.start
-		end
-
-		Thread.pass
-		true while @client == oldclient
-
-		c = @client.instance_variable_get(:@channels)
-		TestServerSession.instance.instance_eval do
-			Thread.exclusive do
-				post nil,                    NOTICE, "#test", "sep1"
-			end
-		end
-
-		true until client_q.pop.to_s == "NOTICE #test sep1\r\n"
-	end
+#	it "should destroy closed session" do
+#	end
 
 	after :all do
 		@server.finish
 		@client.finish
+		@tserver.kill
+		@tclient.kill
+		@server = @client = @tserver = @tclient = nil
 	end
 end
 

@@ -56,6 +56,7 @@ describe Net::IRC, "server and client" do
 			@server.start
 		end
 
+		Thread.pass
 		true until @server.instance_variable_get(:@serv)
 
 		@port = @server.instance_variable_get(:@serv).addr[1]
@@ -70,6 +71,9 @@ describe Net::IRC, "server and client" do
 			})
 			@client.start
 		end
+
+		Thread.pass
+		true until @client
 	end
 
 	server_q = ChannelManagerTestServerSession.testq
@@ -79,6 +83,7 @@ describe Net::IRC, "server and client" do
 		client = @client
 		client.instance_variable_set(:@prefix, Prefix.new("foonick!foouser@localhost"))
 
+		true until ChannelManagerTestServerSession.instance
 		ChannelManagerTestServerSession.instance.instance_eval do
 			Thread.exclusive do
 				post client.prefix,          JOIN,   "#test"

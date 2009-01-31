@@ -41,7 +41,7 @@ task :package => [:clean]
 Spec::Rake::SpecTask.new do |t|
 	t.spec_opts = ['--options', "spec/spec.opts"]
 	t.spec_files = FileList['spec/*_spec.rb']
-	t.rcov = true
+	#t.rcov = true
 end
 
 spec = Gem::Specification.new do |s|

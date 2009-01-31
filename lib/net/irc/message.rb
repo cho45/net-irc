@@ -82,7 +82,7 @@ class Net::IRC::Message
 	# If the message is CTCP, return true.
 	def ctcp?
 		message = @params[1]
-		message[0] == 1 && message[message.length-1] == 1
+		message[0] == "\01"[0] && message[message.length-1] == "\01"[0]
 	end
 
 	def inspect
