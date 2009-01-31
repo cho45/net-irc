@@ -530,8 +530,8 @@ if __FILE__ == $0
 			Dir.chdir "/"
 			File.open("/dev/null") {|f|
 				STDIN.reopen  f
-				STDOUT.reopen f
-				STDERR.reopen f
+				STDOUT.reopen f, 'w'
+				STDERR.reopen f, 'w'
 			}
 			yield
 		end
