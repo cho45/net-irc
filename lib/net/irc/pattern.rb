@@ -1,4 +1,4 @@
-
+# coding: ASCII-8BIT
 module Net::IRC::PATTERN # :nodoc:
 	# letter     =  %x41-5A / %x61-7A       ; A-Z / a-z
 	# digit      =  %x30-39                 ; 0-9
