@@ -56,7 +56,7 @@ module Net::IRC::PATTERN # :nodoc:
 	#            =/ 14( SPACE middle ) [ SPACE [ ":" ] trailing ]
 	MIDDLE = "[#{NOSPCRLFCL}][:#{NOSPCRLFCL}]*"
 	TRAILING = "[: #{NOSPCRLFCL}]*"
-	PARAMS = "(?:((?: #{MIDDLE}){0,14})(?: :(#{TRAILING}))?|((?: #{MIDDLE}){14})(?::?)?(#{TRAILING}))"
+	PARAMS = "(?:((?: #{MIDDLE}){0,14})(?: :(#{TRAILING}))?|((?: #{MIDDLE}){14}):?(#{TRAILING}))"
 
 	# crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
 	# message    =  [ ":" prefix SPACE ] command [ params ] crlf
