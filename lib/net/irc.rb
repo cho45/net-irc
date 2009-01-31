@@ -9,7 +9,7 @@ require "monitor"
 module Net; end
 
 module Net::IRC
-	VERSION = "0.0.5"
+	VERSION = "0.0.6"
 	class IRCException < StandardError; end
 
 	require "net/irc/constants"
