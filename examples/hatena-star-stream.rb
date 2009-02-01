@@ -92,7 +92,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 					@log.info "getting report..."
 					@ua.get("http://s.hatena.ne.jp/#{@real}/report")
 					entries = @ua.page.root.search("#main span.entry-title a").map {|a|
-						a[:href]
+						a['href']
 					}
 
 					@log.info "getting stars... #{entries.length}"
