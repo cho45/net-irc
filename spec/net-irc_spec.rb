@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
-# ENCODING=ASCII-8BIT
-# :vim:encoding=utf-8:
-# ↑ どうするのが正解?
+# coding: ASCII-8BIT
+# :vim:fileencoding=utf-8:
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"

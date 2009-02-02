@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# vim:fileencoding=utf-8:
+# -*- coding: utf-8 -*-
 =begin
 
 # tig.rb
@@ -115,7 +117,7 @@ Force SSL for API.
 
 ### in (location)
 
-	/me in Tokyo, Japan
+	/me in Sugamo, Tokyo, Japan
 
 ### reply (re)
 
@@ -124,6 +126,14 @@ Force SSL for API.
 ### utf7
 
    /me utf7
+
+### name
+
+   /me name My Name
+
+### description (desc)
+
+   /me description blah, blah...
 
 ## License
 
@@ -230,7 +240,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_rate_limit_thread = Thread.start do
 			loop do
 				begin
-					check_downtime
 					check_rate_limit
 				rescue ApiFailed => e
 					@log.error e.inspect
@@ -612,7 +621,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		begin
 			require "iconv"
-			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join } 
+			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
 			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
 		rescue LoadError
 		rescue Iconv::IllegalSequence
@@ -696,21 +705,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		# rate_limit["remaining_hits"] < 1
 		# rate_limit["reset_time_in_seconds"] - Time.now.to_i
-	end
-
-	def check_downtime
-		@prev_downtime ||= nil
-		schedule = api("help/downtime_schedule", {}, { :suppress_errors => true })["error"]
-		if @prev_downtime != schedule && @prev_downtime = schedule
-			msg  = schedule.gsub(%r{[\r\n]|<style(?:\s[^>]*)?>.*?</style\s*>}m, "")
-			uris = URI.extract(msg)
-			uris.each do |uri|
-				msg << " #{uri}"
-			end
-			msg.gsub!(/<[^>]+>/, "")
-			log "\002\037#{msg}\017"
-			# TODO: sleeping for the downtime
-		end
 	end
 
 	def freq(ratio)
@@ -869,7 +863,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def log(str)
-		str.gsub!(/\r?\n|\r/, " ")
+		str.gsub!(/\r\n|[\r\n]/, " ")
 		post server_name, NOTICE, main_channel, str
 	end
 
@@ -992,18 +986,16 @@ if __FILE__ == $0
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
 #	def daemonize(foreground = false)
-#		trap("SIGINT")  { exit! 0 }
-#		trap("SIGTERM") { exit! 0 }
-#		trap("SIGHUP")  { exit! 0 }
+#		[:INT, :TERM, :HUP].each do |sig|
+#			Signal.trap sig, "EXIT"
+#		end
 #		return yield if $DEBUG || foreground
 #		Process.fork do
 #			Process.setsid
 #			Dir.chdir "/"
-#			File.open("/dev/null") {|f|
-#				STDIN.reopen  f
-#				STDOUT.reopen f
-#				STDERR.reopen f
-#			}
+#			STDIN.reopen  "/dev/null"
+#			STDOUT.reopen "/dev/null", "a"
+#			STDERR.reopen STDOUT
 #			yield
 #		end
 #		exit! 0
@@ -1013,7 +1005,3 @@ if __FILE__ == $0
 		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start
 #	end
 end
-
-# Local Variables:
-# coding: utf-8
-# End:

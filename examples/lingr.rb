@@ -275,7 +275,7 @@ module Lingr
 
 		def post(url, params)
 			if !params.find {|p| p[1].is_a?(Hash)}
-        params = params.inject({}){|hash,(k,v)| hash[k.to_s] = v; hash}
+				params = params.inject({}){|hash,(k,v)| hash[k.to_s] = v; hash}
 				parse_result Net::HTTP.post_form(URI.parse(url), params)
 			else
 				boundary = 'lingr-api-client' + (0x1000000 + rand(0x1000000).to_s(16))

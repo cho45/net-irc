@@ -521,17 +521,17 @@ if __FILE__ == $0
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
 	def daemonize(foreground=false)
-		trap("SIGINT")  { exit! 0 }
-		trap("SIGTERM") { exit! 0 }
-		trap("SIGHUP")  { exit! 0 }
+		[:INT, :TERM, :HUP].each do |sig|
+			Signal.trap sig, "EXIT"
+		end
 		return yield if $DEBUG || foreground
 		Process.fork do
 			Process.setsid
 			Dir.chdir "/"
 			File.open("/dev/null") {|f|
 				STDIN.reopen  f
-				STDOUT.reopen f, 'w'
-				STDERR.reopen f, 'w'
+				STDOUT.reopen f, "w"
+				STDERR.reopen f, "w"
 			}
 			yield
 		end
