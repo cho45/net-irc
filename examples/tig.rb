@@ -332,7 +332,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
-		message = Iconv.iconv("UTF-7", "UTF-8", message).join if @utf7
+		message = Iconv.iconv("UTF-7", "UTF-8", message).join.force_encoding("ASCII-8BIT") if @utf7
 		begin
 			if target =~ /^#/
 				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
