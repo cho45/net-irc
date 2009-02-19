@@ -1,3 +1,9 @@
+2009-02-19  SATOH Hiroh <cho45@lowreal.net>
+
+	* [bug]:
+		Fixed net/irc.rb permission.
+	* Released 0.0.7
+
 2009-02-01  SATOH Hiroh <cho45@lowreal.net>
 
 	* [bug]:
