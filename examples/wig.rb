@@ -259,7 +259,10 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#(.+)/
 				channel = Regexp.last_match[1]
 				reply   = message[/\s+>(.+)$/, 1]
-				message = Iconv.iconv("UTF-7", "UTF-8", message).join.force_encoding("ASCII-8BIT") if @utf7
+				if @utf7
+					message = Iconv.iconv("UTF-7", "UTF-8", message).join
+					message = message.force_encoding("ASCII-8BIT") if message.respond_to?(:force_encoding)
+				end
 				if !reply && @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
 					message = "##{channel} #{message}" unless "##{channel}" == main_channel
 					ret = @im.deliver(jabber_bot_id, message)

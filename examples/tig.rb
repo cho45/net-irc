@@ -332,7 +332,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
-		message = Iconv.iconv("UTF-7", "UTF-8", message).join.force_encoding("ASCII-8BIT") if @utf7
+		if @utf7
+			message = Iconv.iconv("UTF-7", "UTF-8", message).join
+			message = message.force_encoding("ASCII-8BIT") if message.respond_to?(:force_encoding)
+		end
 		begin
 			if target =~ /^#/
 				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
@@ -389,7 +392,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			to = nick == @nick ? server_name : nick
 			res = api("statuses/user_timeline", { :id => nick, :count => "#{count}" }).reverse_each do |s|
 				@log.debug(s)
-				post to, NOTICE, main_channel, "#{generate_status_message(s)}"
+				time = Time.parse(s["created_at"]) rescue Time.now
+				post to, NOTICE, main_channel, "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
 			end
 			unless res
 				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
