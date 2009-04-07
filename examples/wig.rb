@@ -649,7 +649,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		case ret
 		when Net::HTTPOK # 200
-			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
+			ret = JSON.parse(ret.body)
 			raise ApiFailed, "Server Returned Error: #{ret["error"]}" if ret.kind_of?(Hash) && ret["error"]
 			ret
 		when Net::HTTPNotModified # 304

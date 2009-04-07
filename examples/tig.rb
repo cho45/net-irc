@@ -839,7 +839,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		case ret = http.request(req)
 		when Net::HTTPOK # 200
-			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
+			ret = JSON.parse(ret.body)
 			if ret.kind_of?(Hash) && !opt[:suppress_errors] && ret["error"]
 				raise ApiFailed, "Server Returned Error: #{ret["error"]}"
 			end
