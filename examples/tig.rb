@@ -94,6 +94,8 @@ Use IM instead of any APIs (e.g. post)
 
 ### secure
 
+### clientspoofing
+
 Force SSL for API.
 
 ## Extended commands through the CTCP ACTION
@@ -252,7 +254,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				sleep @opts["checkrls"] || 3600 # 1 hour
 			end
 		end
-		sleep 5
+		sleep 3
 
 		@ratio = Struct.new(:timeline, :friends, :replies).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
 		@ratio[:replies] = @opts.key?("replies") ? (@opts["replies"] || 5).to_f : 0.0
@@ -279,6 +281,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		return if @opts["jabber"]
+
+		@sources = @opts.key?("clientspoofing") ? fetch_sources : [api_source]
 
 		sleep 3
 		@check_timeline_thread = Thread.start do
@@ -342,7 +346,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
-					ret = api("statuses/update", { :status => message })
+					ret = api("statuses/update", { :status => message,
+					                               :source => @sources[rand(@sources.size)] })
 				end
 			else
 				# direct message
@@ -884,6 +889,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			}
 		}
+	end
+
+	def fetch_sources
+		json = Net::HTTP.get "wedata.net", "/databases/TwitterSources/items.json"
+		sources = JSON.parse json
+		sources.map {|item| item["data"]["source"] }
+	rescue
+		[api_source]
 	end
 
 	class TypableMap < Hash
