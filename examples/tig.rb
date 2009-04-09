@@ -25,7 +25,7 @@ Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid ratio=32:1 replies=6 maxlimit=70
+		name: username@example.com athack jabber=username@example.com:jabberpasswd tid ratio=32:1 mentions=6 maxlimit=70
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -86,7 +86,7 @@ Use IM instead of any APIs (e.g. post)
 
 ### ratio=<timeline>:<friends>
 
-### replies[=<ratio>]
+### mentions[=<ratio>]
 
 ### maxlimit=<hourly limit>
 
@@ -191,7 +191,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		60
 	end
 
-	class ApiFailed < StandardError; end
+	class APIFailed < StandardError; end
 
 	def initialize(*args)
 		super
@@ -212,7 +212,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@real, *@opts = @opts.name || @real.split(/\s+/)
 		@opts = @opts.inject({}) {|r,i|
 			key, value = i.split("=")
-			r.update(key => value)
+			key = "mentions" if key == "replies" # backcompat
+			r.update(key => value || true)
 		}
 		@tmap = TypableMap.new
 
@@ -243,7 +244,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					check_rate_limit
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -256,11 +257,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 3
 
-		@ratio = Struct.new(:timeline, :friends, :replies).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
-		@ratio[:replies] = @opts.key?("replies") ? (@opts["replies"] || 5).to_f : 0.0
-
+		@ratio = Struct.new(:timeline, :friends, :mentions).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
+		@ratio[:mentions] = (@opts["mentions"] == true ? 5 : @opts["mentions"]).to_f
 		footing = @ratio.inject {|sum, ratio| sum + ratio }
-
 		@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 
 		@timeline = []
@@ -268,7 +267,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					check_friends
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -282,7 +281,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return if @opts["jabber"]
 
-		@sources = @opts.key?("clientspoofing") ? fetch_sources : [api_source]
+		@sources = @opts["clientspoofing"] ? fetch_sources : [api_source]
 
 		sleep 3
 		@check_timeline_thread = Thread.start do
@@ -290,7 +289,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				begin
 					check_timeline
 					# check_direct_messages
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -302,14 +301,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
-		return unless @opts.key?("replies")
+		return unless @opts["mentions"]
 
 		sleep 10
-		@check_replies_thread = Thread.start do
+		@check_mentions_thread = Thread.start do
 			loop do
 				begin
-					check_replies
-				rescue ApiFailed => e
+					check_mentions
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -317,14 +316,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:replies])
+				sleep freq(@ratio[:mentions])
 			end
 		end
 	end
 
 	def on_disconnected
 		@check_friends_thread.kill    rescue nil
-		@check_replies_thread.kill    rescue nil
+		@check_mentions_thread.kill   rescue nil
 		@check_timeline_thread.kill   rescue nil
 		@check_rate_limit_thread.kill rescue nil
 		@im_thread.kill               rescue nil
@@ -342,7 +341,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		begin
 			if target =~ /^#/
-				if @opts.key?("alwaysim") && @im && @im.connected? # in jabber mode, using jabber post
+				if @opts["alwaysim"] && @im && @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, message)
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
@@ -353,7 +352,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				# direct message
 				ret = api("direct_messages/new", { :user => target, :text => message })
 			end
-			raise ApiFailed, "API failed" unless ret
+			raise APIFailed, "API failed" unless ret
 			log "Status Updated"
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
@@ -375,10 +374,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			nickname   = args[2] || args[1] # allow omitting 'as'
 			if nickname == "is"
 				@nicknames.delete(twitter_id)
-				post server_name, NOTICE, main_channel, "Removed nickname for #{twitter_id}"
+				log "Removed nickname for #{twitter_id}"
 			else
 				@nicknames[twitter_id] = nickname
-				post server_name, NOTICE, main_channel, "Call #{twitter_id} as #{nickname}"
+				log "Call #{twitter_id} as #{nickname}"
 			end
 		when "utf7"
 			begin
@@ -410,52 +409,54 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				if st
 					sleep 1 if i > 0
 					res = api("favorites/#{method}/#{st["id"]}")
-					post server_name, NOTICE, main_channel, "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
+					log "#{pfx}av: #{res["user"]["screen_name"]}: #{res["text"]}"
 				else
-					post server_name, NOTICE, main_channel, "No such ID #{tid}"
+					log "No such ID #{tid}"
 				end
 			end
 		when "link", "ln"
 			args.each do |tid|
 				st = @tmap[tid]
 				if st
-					post server_name, NOTICE, main_channel, "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}"
+					log "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}"
 				else
-					post server_name, NOTICE, main_channel, "No such ID #{tid}"
+					log "No such ID #{tid}"
 				end
 			end
 #		when /^ratios?$/
-#			if args[1].nil? ||
-#			   @opts.key?("replies") && args[2].nil?
-#				return post server_name, NOTICE, main_channel, "/me ratios <timeline> <frends>[ <replies>]"
+#			if !args.empty?
+#				if args.size < 2 ||
+#				   (@opts["mentions"] && args.size < 3)
+#					return log("/me ratios <timeline> <frends>[ <mentions>]")
+#				end
+#				ratios = args.map {|ratio| ratio.to_f }
+#				if ratios.any? {|ratio| ratio <= 0.0 }
+#					return log("Ratios must be greater than 0.0 and fractional values are permitted.")
+#				end
+#				footing = ratios.inject {|sum, ratio| sum + ratio }
+#				@ratio[:timeline] = ratios[0]
+#				@ratio[:friends]  = ratios[1]
+#				@ratio[:mentions] = ratios[2] if @opts["mentions"]
+#				@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			end
-#			ratios = args.map {|ratio| ratio.to_f }
-#			if ratios.any? {|ratio| ratio <= 0.0 }
-#				return post server_name, NOTICE, main_channel, "Ratios must be greater than 0."
-#			end
-#			footing = ratios.inject {|sum, ratio| sum + ratio }
-#			@ratio[:timeline] = ratios[0]
-#			@ratio[:friends]  = ratios[1]
-#			@ratio[:replies]  = ratios[2] || 0.0
-#			@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			intervals = @ratio.map {|ratio| freq ratio }
-#			post server_name, NOTICE, main_channel, "Intervals: #{intervals.join(", ")}"
+#			log "Intervals: #{intervals.join(", ")}"
 		when /^(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))$/ # destroy, delete, del, remove, rm, miss, oops
 			args.each_with_index do |tid, i|
 				st = @tmap[tid]
 				if st
 					sleep 1 if i > 0
 					res = api("statuses/destroy/#{st["id"]}")
-					post server_name, NOTICE, main_channel, "Destroyed: #{res["text"]}"
+					log "Destroyed: #{res["text"]}"
 				else
-					post server_name, NOTICE, main_channel, "No such ID #{tid}"
+					log "No such ID #{tid}"
 				end
 			end
 		when "name"
 			name = message.split(/\s+/, 3)[2]
 			unless  name.nil?
 				api("account/update_profile", { :name => name })
-				post server_name, NOTICE, main_channel, "You are named #{name}."
+				log "You are named #{name}."
 			end
 		when "email"
 			# FIXME
@@ -471,7 +472,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			location = message.split(/\s+/, 3)[2] || ""
 			api("account/update_profile", { :location => location })
 			location = location.empty? ? "nowhere" : "in #{location}"
-			post server_name, NOTICE, main_channel, "You are #{location} now."
+			log "You are #{location} now."
 		when /^desc(?:ription)?$/
 			# FIXME
 			description = message.split(/\s+/, 3)[2] || ""
@@ -498,7 +499,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		end
-	rescue ApiFailed => e
+	rescue APIFailed => e
 		log e.inspect
 	end
 
@@ -604,7 +605,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = generate_status_message(s)
 			tid  = @tmap.push(s)
 
-			if @opts.key?("tid")
+			if @opts["tid"]
 				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
 			end
 
@@ -642,10 +643,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mesg
 	end
 
-	def check_replies
+	def check_mentions
 		time = @prev_time_r || Time.now
 		@prev_time_r = Time.now
-		api("statuses/replies").reverse_each do |s|
+		api("statuses/mentions").reverse_each do |s|
 			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
 
@@ -656,7 +657,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = generate_status_message(s)
 			tid  = @tmap.push(s)
 
-			if @opts.key?("tid")
+			if @opts["tid"]
 				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
 			end
 
@@ -681,7 +682,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		first = true unless @friends
 		@friends ||= []
 		friends = api("statuses/friends")
-		if first && !@opts.key?("athack")
+		if first && !@opts["athack"]
 			@friends = friends
 			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
@@ -693,11 +694,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
 			(now_friends - prv_friends).each do |join|
-				join = "@#{join}" if @opts.key?("athack")
+				join = "@#{join}" if @opts["athack"]
 				post "#{join}!#{join}@#{api_base.host}", JOIN, main_channel
 			end
 			(prv_friends - now_friends).each do |part|
-				part = "@#{part}" if @opts.key?("athack")
+				part = "@#{part}" if @opts["athack"]
 				post "#{part}!#{part}@#{api_base.host}", PART, main_channel, ""
 			end
 			@friends = friends
@@ -719,7 +720,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def freq(ratio)
 		max   = (@opts["maxlimit"] || 100).to_i
 		limit = @hourly_limit < max ? @hourly_limit : max
-		f     = 3600 / (limit * ratio).round
+		f     = 3600 / (limit * ratio).round rescue nil
 		@log.debug "Frequency: #{f}"
 		f
 	end
@@ -818,7 +819,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		path = path.sub(%r{^/+}, "")
 		uri  = api_base.dup
-		if @opts.key?("secure")
+		if @opts["secure"]
 			uri.scheme = "https"
 			uri.port   = 443
 		end
@@ -846,19 +847,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body)
 			if ret.kind_of?(Hash) && !opt[:suppress_errors] && ret["error"]
-				raise ApiFailed, "Server Returned Error: #{ret["error"]}"
+				raise APIFailed, "Server Returned Error: #{ret["error"]}"
 			end
 			ret
 		when Net::HTTPNotModified # 304
 			[]
 		when Net::HTTPBadRequest # 400
 			# exceeded the rate limitation
-			raise ApiFailed, "#{ret.code}: #{ret.message}"
+			raise APIFailed, "#{ret.code}: #{ret.message}"
 		else
-			raise ApiFailed, "Server Returned #{ret.code} #{ret.message}"
+			raise APIFailed, "Server Returned #{ret.code} #{ret.message}"
 		end
 	rescue Errno::ETIMEDOUT, JSON::ParserError, IOError, Timeout::Error, Errno::ECONNRESET => e
-		raise ApiFailed, e.inspect
+		raise APIFailed, e.inspect
 	end
 
 	def message(sender, target, str)
