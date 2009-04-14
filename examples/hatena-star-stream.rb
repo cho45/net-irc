@@ -20,6 +20,8 @@ require "mechanize"
 require "sdbm"
 require "tmpdir"
 require "nkf"
+require "hpricot"
+WWW::Mechanize.html_parser = Hpricot
 
 class HatenaStarStream < Net::IRC::Server::Session
 	def server_name
@@ -101,25 +103,34 @@ class HatenaStarStream < Net::IRC::Server::Session
 					db = SDBM.open("#{Dir.tmpdir}/#{@real}.db", 0666)
 					entries.reverse_each do |entry|
 						next if stars[entry].empty?
-						s, quoted = stars[entry].select {|star|
-							id = "#{entry}::#{star.values_at("name", "quote").inspect}"
+						i = 0
+						s = stars[entry].select {|star|
+							id = "#{entry}::#{i}"
+							i += 1
 							if db.include?(id)
 								false
 							else
 								db[id] = "1"
 								true
 							end
-						}.partition {|star| star["quote"].empty? }
-						post server_name, NOTICE, main_channel, "#{entry} #{title(entry)}" if s.length + quoted.length > 0
-						post server_name, NOTICE, main_channel, s.map {|star| "id:#{star["name"]}" }.join(" ") unless s.empty?
+						}
 
-						quoted.each do |star|
-							post server_name, NOTICE, main_channel, "id:#{star["name"]} '#{star["quote"]}'"
+						post server_name, NOTICE, main_channel, "↓ #{entry} #{title(entry)}" if s.length > 0
+
+						s.each do |star|
+							post server_name, NOTICE, main_channel, "id:%s \x03%d%s%s\x030 %s" % [
+								star.name,
+								Star::Colors[star.color],
+								((star.color == "normal") ? "☆" : "★") * ([star.count, 10].min),
+								(star.count > 10) ? "(...#{star.count})" : "",
+								star.quote
+							]
 						end
 					end
 
 				rescue Exception => e
 					@log.error e.inspect
+					@log.error e.backtrace
 				ensure
 					db.close rescue nil
 				end
@@ -138,7 +149,25 @@ class HatenaStarStream < Net::IRC::Server::Session
 			if i["stars"].any? {|star| star.kind_of? Numeric }
 				i = JSON.load(@ua.get("http://s.hatena.ne.jp/entry.json?uri=#{URI.escape(i["uri"])}").body)["entries"].first
 			end
-			r.update(i["uri"] => i["stars"])
+			stars = []
+
+			if i["colored_stars"]
+				i["colored_stars"].each do |s|
+					s["stars"].each do |j|
+						stars << Star.new(j, s["color"])
+					end
+				end
+			end
+
+			i["stars"].each do |j|
+				star = Star.new(j)
+				if star.quote.empty? && stars.last && stars.last.name == star.name && stars.last.color == "normal"
+					stars.last.count += 1
+				else
+					stars << star
+				end
+			end
+			r.update(i["uri"] => stars)
 		}
 		if n < entries.length
 			ret.update retrive_stars(entries, n)
@@ -183,6 +212,21 @@ class HatenaStarStream < Net::IRC::Server::Session
 		unless @ua.page.forms.empty?
 			post server_name, ERR_PASSWDMISMATCH, ":Password incorrect"
 			finish
+		end
+	end
+
+	class Star < OpenStruct
+		Colors = {
+			"blue"   => 2,
+			"green"  => 3,
+			"red"    => 4,
+			"normal" => 8,
+		}
+
+		def initialize(obj, col="normal")
+			super(obj)
+			self.count = obj["count"].to_i  + 1
+			self.color = col
 		end
 	end
 end
