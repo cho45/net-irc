@@ -94,8 +94,6 @@ Use IM instead of any APIs (e.g. post)
 
 ### secure
 
-### clientspoofing
-
 Force SSL for API.
 
 ## Extended commands through the CTCP ACTION
@@ -136,6 +134,12 @@ Force SSL for API.
 ### description (desc)
 
    /me description blah, blah...
+
+### spoof
+
+   /me spoof
+   /me spoo[o...]f
+   /me spoof tigrb twitterircgateway twitt web mobileweb
 
 ## License
 
@@ -281,7 +285,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return if @opts["jabber"]
 
-		@sources = @opts["clientspoofing"] ? fetch_sources : [api_source]
+		@sources   = [[api_source, "tig.rb"]]
+		@suffix_bl = fetch_suffix_bl
 
 		sleep 3
 		@check_timeline_thread = Thread.start do
@@ -346,7 +351,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					post "#{nick}!#{nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(message)
 				else
 					ret = api("statuses/update", { :status => message,
-					                               :source => @sources[rand(@sources.size)] })
+					                               :source => @sources[rand(@sources.size)].first })
 				end
 			else
 				# direct message
@@ -477,17 +482,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			# FIXME
 			description = message.split(/\s+/, 3)[2] || ""
 			api("account/update_profile", { :description => description })
-		when /^colou?rs?$/
-			# FIXME
-			# bg, text, link, fill and border
-		when "image", "img"
-			# FIXME
-			url = args.first
-			# TODO: DCC SEND
-		when "follow"
-			# FIXME
-		when "leave"
-			# FIXME
+#		when /^colou?rs?$/
+#			# FIXME
+#			# bg, text, link, fill and border
+#		when "image", "img"
+#			# FIXME
+#			url = args.first
+#			# TODO: DCC SEND
+#		when "follow"
+#			# FIXME
+#		when "leave"
+#			# FIXME
 		when /^re(?:ply)?$/
 			tid = args.first
 			st  = @tmap[tid]
@@ -498,6 +503,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
 				end
 			end
+		when /^spoo(o+)?f$/
+			@sources = args.empty? \
+			         ? @sources.size == 1 || $1 ? fetch_sources($1 && $1.size) \
+			                                    : [[api_source, "tig.rb"]] \
+			         : args.map {|source| [source.downcase != "web" ? source : "", "=#{source}"] }
+			log @sources.map {|source| source[1] }.sort.join(", ")
 		end
 	rescue APIFailed => e
 		log e.inspect
@@ -867,6 +878,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			[$1 ? $2.hex : $2.to_i].pack("U")
 #		end
 		str    = untinyurl(str)
+		str    = str.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "")
 		sender = @nicknames[sender] || sender
 		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
@@ -892,23 +904,35 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		}
 	end
 
-	def fetch_sources
+	def fetch_sources(n = nil)
 		json = Net::HTTP.get "wedata.net", "/databases/TwitterSources/items.json"
 		sources = JSON.parse json
-		sources.map {|item| item["data"]["source"] }
+		sources.map! {|item| [item["data"]["source"], item["name"]] }.push ["", "web"]
+		if n.is_a?(Integer) && n < sources.size
+			sources = Array.new(n) { sources.delete_at(rand(sources.size)) }.compact
+		end
+		sources
+	rescue => e
+		@log.error e.inspect
+		log "An error occured while loading wedata.net."
+		@sources
+	end
+
+	def fetch_suffix_bl
+		list = Net::HTTP.get "svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt"
+		list.split
 	rescue
-		[api_source]
+		[]
 	end
 
 	class TypableMap < Hash
-		Roman = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
-			case
-			when consonant.size > 1, consonant == "y"
-				%w|a u o|
-			when consonant == "q"
-				%w|a i e o|
-			else
-				%w|a i u e o|
+		Roman = %w[
+			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
+		].unshift("").map {|consonant|
+			case consonant
+				when "y", /^.{2}/ then %w|a u o|
+				when "q"          then %w|a i e o|
+				else                   %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
 		}.flatten
 
