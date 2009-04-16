@@ -605,7 +605,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		q = { :count => "117" }
+		q = { :count => "200" }
 		q[:since_id] = @timeline.last.to_s if @timeline.last
 		api("statuses/friends_timeline", q).reverse_each do |s|
 			id = s["id"]
@@ -650,13 +650,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		# time = Time.parse(s["created_at"]) rescue Time.now
 		m = { "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " " }
-		mesg.gsub!(/#{m.keys.join("|")}/) { m[$&] }
-		mesg
+		mesg.gsub!(Regexp.union(*m.keys)) { m[$&] }
+		mesg.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "")
 	end
 
 	def check_mentions
-		time = @prev_time_r || Time.now
-		@prev_time_r = Time.now
+		time = @prev_time_m || Time.now
+		@prev_time_m = Time.now
 		api("statuses/mentions").reverse_each do |s|
 			id = s["id"]
 			next if id.nil? || @timeline.include?(id)
@@ -878,7 +878,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			[$1 ? $2.hex : $2.to_i].pack("U")
 #		end
 		str    = untinyurl(str)
-		str    = str.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "")
 		sender = @nicknames[sender] || sender
 		sender = "#{sender}!#{sender}@#{api_base.host}"
 		post sender, PRIVMSG, target, str
