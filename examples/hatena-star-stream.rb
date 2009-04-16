@@ -217,6 +217,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 
 	class Star < OpenStruct
 		Colors = {
+			"purple" => 6,
 			"blue"   => 2,
 			"green"  => 3,
 			"red"    => 4,
