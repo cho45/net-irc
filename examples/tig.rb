@@ -125,21 +125,21 @@ Force SSL for API.
 
 ### utf7
 
-   /me utf7
+	/me utf7
 
 ### name
 
-   /me name My Name
+	/me name My Name
 
 ### description (desc)
 
-   /me description blah, blah...
+	/me description blah, blah...
 
 ### spoof
 
-   /me spoof
-   /me spoo[o...]f
-   /me spoof tigrb twitterircgateway twitt web mobileweb
+	/me spoof
+	/me spoo[o...]f
+	/me spoof tigrb twitterircgateway twitt web mobileweb
 
 ## License
 
@@ -397,10 +397,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
 			end
-			@log.debug([nick, message])
+			@log.debug [nick, message]
 			to = nick == @nick ? server_name : nick
-			res = api("statuses/user_timeline", { :id => nick, :count => "#{count}" }).reverse_each do |s|
-				@log.debug(s)
+			res = api("statuses/user_timeline/#{nick}", { :count => "#{count}" }).reverse_each do |s|
+				@log.debug s
 				time = Time.parse(s["created_at"]) rescue Time.now
 				post to, NOTICE, main_channel, "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
 			end
@@ -551,7 +551,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
-			post server_name, ERR_NOSUCHNICK, @nick, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, @nick, "No such nick/channel"
 		end
 	end
 
@@ -586,7 +586,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post server_name, MODE, channel, "+o", nick
 			save_config
 		else
-			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
+			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -599,7 +599,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post nick, PART, channel
 			save_config
 		else
-			post ERR_NOSUCHNICK, nil, nick, "No such nick/channel"
+			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -636,19 +636,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def generate_status_message(status)
-		s = status
-		mesg = s["text"]
-		@log.debug(mesg)
+		mesg = status["text"]
+		@log.debug mesg
 
 		begin
 			require "iconv"
 			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
-			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
+			mesg    = "[utf7]: #{mesg}" if mesg =~ /[^a-z0-9\s]/i
 		rescue LoadError
 		rescue Iconv::IllegalSequence
 		end
 
-		# time = Time.parse(s["created_at"]) rescue Time.now
+		# time = Time.parse(status["created_at"]) rescue Time.now
 		m = { "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " " }
 		mesg.gsub!(Regexp.union(*m.keys)) { m[$&] }
 		mesg.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "")
@@ -673,7 +672,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 
 			@log.debug [id, nick, mesg]
-			message nick, main_channel, mesg
+			message(nick, main_channel, mesg)
 		end
 	end
 
@@ -694,8 +693,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@friends ||= []
 		friends = api("statuses/friends")
 		if first && !@opts["athack"]
-			@friends = friends
-			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, @friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
+			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|i| i["screen_name"] }
@@ -712,8 +710,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				part = "@#{part}" if @opts["athack"]
 				post "#{part}!#{part}@#{api_base.host}", PART, main_channel, ""
 			end
-			@friends = friends
 		end
+		@friends = friends
 	end
 
 	def check_rate_limit
@@ -918,8 +916,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def fetch_suffix_bl
-		list = Net::HTTP.get "svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt"
-		list.split
+		Net::HTTP.get("svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt").split
 	rescue
 		[]
 	end
