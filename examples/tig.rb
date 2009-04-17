@@ -459,7 +459,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		when "name"
 			name = message.split(/\s+/, 3)[2]
-			unless  name.nil?
+			unless name.nil?
 				api("account/update_profile", { :name => name })
 				log "You are named #{name}."
 			end
@@ -507,7 +507,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@sources = args.empty? \
 			         ? @sources.size == 1 || $1 ? fetch_sources($1 && $1.size) \
 			                                    : [[api_source, "tig.rb"]] \
-			         : args.map {|source| [source.downcase != "web" ? source : "", "=#{source}"] }
+			         : args.map {|source| [source.upcase != "WEB" ? source : "", "=#{source}"] }
 			log @sources.map {|source| source[1] }.sort.join(", ")
 		end
 	rescue APIFailed => e
@@ -516,7 +516,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_whois(m)
 		nick = m.params[0]
-		f = (@friends || []).find {|i| i["screen_name"] == nick }
+		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
 		if f
 			post server_name, RPL_WHOISUSER,   @nick, nick, nick, api_base.host, "*", "#{f["name"]} / #{f["description"]}"
 			post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, api_base.to_s
@@ -530,7 +530,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_who(m)
 		channel = m.params[0]
 		case
-		when channel == main_channel
+		when channel.downcase == main_channel
 			#     "<channel> <user> <host> <server> <nick>
 			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
 			#             :<hopcount> <real name>"
@@ -558,7 +558,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_join(m)
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
-			next if channel == main_channel
+			next if channel.downcase == main_channel
 
 			@channels << channel
 			@channels.uniq!
@@ -570,7 +570,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_part(m)
 		channel = m.params[0]
-		return if channel == main_channel
+		return if channel.downcase == main_channel
 
 		@channels.delete(channel)
 		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
@@ -578,15 +578,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_invite(m)
 		nick, channel = *m.params
-		return if channel == main_channel
+		return if channel.downcase == main_channel
 
-		if (@friends || []).find {|i| i["screen_name"] == nick }
-			((@groups[channel] ||= []) << nick).uniq!
+		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
+		if f
+			((@groups[channel] ||= []) << f["screen_name"]).uniq!
 			post "#{nick}!#{nick}@#{api_base.host}", JOIN, channel
 			post server_name, MODE, channel, "+o", nick
 			save_config
 		else
-			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -594,12 +595,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel, nick, mes = *m.params
 		return if channel == main_channel
 
-		if (@friends || []).find {|i| i["screen_name"] == nick }
-			(@groups[channel] ||= []).delete(nick)
+		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
+		if f
+			(@groups[channel] ||= []).delete(f["screen_name"])
 			post nick, PART, channel
 			save_config
 		else
-			post nil, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
 	end
 
@@ -641,8 +643,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		begin
 			require "iconv"
-			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
-			mesg    = "[utf7]: #{mesg}" if mesg =~ /[^a-z0-9\s]/i
+			mesg = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+			# mesg = "[utf7]: #{mesg}" if mesg =~ /[^a-z0-9\s]/i
 		rescue LoadError
 		rescue Iconv::IllegalSequence
 		end
@@ -749,8 +751,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 							begin
 								require "iconv"
-								body    = body.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
-								body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
+								body = body.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+								body = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
 							rescue LoadError
 							rescue Iconv::IllegalSequence
 							end
@@ -806,19 +808,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		}x === path
 	end
 
-	def require_delete?(path)
-		#%r{
-		#	^
-		#	(?: status(?:es)?
-		#	  | direct_messages
-		#	  | friendships
-		#	  | favou?ri(?:ing|tes) )
-		#	  | blocks
-		#	/destroy/
-		#}x === path
-		path.include? "/destroy/"
-	end
-
 	def api(path, q = {}, opt = {})
 		ret     = {}
 		headers = { "User-Agent" => @user_agent }
@@ -838,7 +827,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when require_post?(path)
 			req = Net::HTTP::Post.new(uri.path, headers)
 			req.body = uri.query
-		when require_delete?(path)
+		when path.include?("/destroy/") # require_delete?
 			req = Net::HTTP::Delete.new(uri.path, headers)
 			req.body = uri.query
 		else
