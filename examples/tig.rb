@@ -527,8 +527,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_whois(m)
 		nick  = m.params[0]
-		users = @friends || []
-		users.unshift @me if @me
+		users = []
+		users.push @me      if @me
+		users.push @friends if @friends
 		f = users.find {|i| i["screen_name"].upcase == nick.upcase }
 		if f
 			host = hostname f
@@ -549,8 +550,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		case
 		when channel.downcase == main_channel
-			users = @friends || []
-			users.unshift @me if @me
+			users = []
+			users.push @me      if @me
+			users.push @friends if @friends
 			users.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
