@@ -537,17 +537,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			#     "<channel> <user> <host> <server> <nick>
 			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
 			#             :<hopcount> <real name>"
-			@friends.each {|friend| whoreply friend }
+			@friends.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
-				whoreply @friends.find {|i| i["screen_name"] == name }
+				whoreply channel, @friends.find {|i| i["screen_name"] == name }
 			end
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
 			post server_name, ERR_NOSUCHNICK, @nick, "No such nick/channel"
 		end
-		def whoreply(u)
+		def whoreply(channel, u)
 			nick = u["screen_name"]
 			user = u["id"].to_s
 			host = u["protected"] ? "protected.#{api_base.host}" : api_base.host
@@ -710,8 +710,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			# Twitter API bug?
 			return if !first && (now_friends.length - prv_friends.length).abs > 10
 
-			(now_friends - prv_friends).each {|join| post join, JOIN, main_channel }
 			(prv_friends - now_friends).each {|part| post part, PART, main_channel, "" }
+			sleep 1
+			(now_friends - prv_friends).each {|join| post join, JOIN, main_channel }
 		end
 		@friends = friends
 	end
