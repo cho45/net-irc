@@ -206,21 +206,33 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@nicknames  = {}
 		@user_agent = "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"
 		@config     = Pathname.new(ENV["HOME"]) + ".tig"
-		@map        = nil
 		load_config
 	end
 
+#	def on_nick(m)
+#		@nicknames[@nick] = m.params[0]
+#	end
+
 	def on_user(m)
 		super
-		post @prefix, JOIN, main_channel
-		post server_name, MODE, main_channel, "+o", @prefix.nick
-
-		@real, *@opts = @opts.name || @real.split(/\s+/)
+		@real, *@opts = (@opts.name || @real).split(/\s+/)
 		@opts = @opts.inject({}) {|r,i|
 			key, value = i.split("=")
 			key = "mentions" if key == "replies" # backcompat
 			r.update(key => value || true)
 		}
+
+		@me = api("account/verify_credentials")
+		if @me
+			@user   = @me["id"].to_s
+			@host   = hostname(@me)
+			@prefix = Prefix.new("#{@me["screen_name"]}!#{@user}@#{@host}")
+			#post NICK, @me["screen_name"] if @nick != @me["screen_name"]
+		end
+		post @prefix, JOIN, main_channel
+		post server_name, MODE, main_channel, "+o", @prefix.nick
+		post @prefix, TOPIC, main_channel, generate_status_message(@me["status"]) if @me
+
 		@tmap = TypableMap.new
 
 		if @opts["jabber"]
@@ -263,7 +275,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		sleep 3
 
-		@ratio = Struct.new(:timeline, :friends, :mentions).new(*(@opts["ratio"] || "10:3").split(":").map {|ratio| ratio.to_f })
+		@ratio = (@opts["ratio"] || "11:3").split(":").map {|r| r.to_f }
+		@ratio = Struct.new(:timeline, :friends, :mentions).new(*@ratio)
 		@ratio[:mentions] = (@opts["mentions"] == true ? 5 : @opts["mentions"]).to_f
 		footing = @ratio.inject {|sum, ratio| sum + ratio }
 		@ratio.each_pair {|m, v| @ratio[m] = v / footing }
@@ -281,7 +294,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:friends])
+				sleep interval(@ratio[:friends])
 			end
 		end
 
@@ -304,7 +317,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:timeline])
+				sleep interval(@ratio[:timeline])
 			end
 		end
 
@@ -323,7 +336,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep freq(@ratio[:mentions])
+				sleep interval(@ratio[:mentions])
 			end
 		end
 	end
@@ -350,7 +363,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#/
 				if @opts["alwaysim"] && @im && @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, mesg)
-					post "#{@nick}!#{@nick}@#{api_base.host}", TOPIC, main_channel, untinyurl(mesg)
+					post @prefix, TOPIC, main_channel, mesg
 				else
 					src = @sources[rand(@sources.size)].first
 					ret = api("statuses/update", { :status => mesg, :source => src })
@@ -444,7 +457,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #				@ratio[:mentions] = ratios[2] if @opts["mentions"]
 #				@ratio.each_pair {|m, v| @ratio[m] = v / footing }
 #			end
-#			intervals = @ratio.map {|ratio| freq ratio }
+#			intervals = @ratio.map {|ratio| interval ratio }
 #			log "Intervals: #{intervals.join(", ")}"
 		when /^(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))$/ # destroy, delete, del, remove, rm, miss, oops
 			args.each_with_index do |tid, i|
@@ -513,10 +526,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_whois(m)
-		nick = m.params[0]
-		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
+		nick  = m.params[0]
+		users = @friends || []
+		users.unshift @me if @me
+		f = users.find {|i| i["screen_name"].upcase == nick.upcase }
 		if f
-			host = f["protected"] ? "protected.#{api_base.host}" : api_base.host
+			host = hostname f
 			desc = f["name"]
 			desc << " / #{f["description"]}".gsub(/\s+/, " ") unless f["description"].empty?
 			idle = (Time.now - Time.parse(f["status"]["created_at"])).to_i rescue 0
@@ -534,10 +549,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		case
 		when channel.downcase == main_channel
-			#     "<channel> <user> <host> <server> <nick>
-			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
-			#             :<hopcount> <real name>"
-			@friends.each {|friend| whoreply channel, friend }
+			users = @friends || []
+			users.unshift @me if @me
+			users.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
 			@groups[channel].each do |name|
@@ -548,9 +562,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post server_name, ERR_NOSUCHNICK, @nick, "No such nick/channel"
 		end
 		def whoreply(channel, u)
+			#     "<channel> <user> <host> <server> <nick>
+			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
+			#             :<hopcount> <real name>"
 			nick = u["screen_name"]
 			user = u["id"].to_s
-			host = u["protected"] ? "protected.#{api_base.host}" : api_base.host
+			host = hostname u
 			serv = api_base.host
 			real = u["name"]
 			post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*@", "0 #{real}"
@@ -564,7 +581,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			@channels << channel
 			@channels.uniq!
-			post "#{@nick}!#{@nick}@#{api_base.host}", JOIN, channel
+			post @prefix, JOIN, channel
 			post server_name, MODE, channel, "+o", @nick
 			save_config
 		end
@@ -586,7 +603,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		if f
 			((@groups[channel] ||= []) << f["screen_name"]).uniq!
 			post generate_prefix(f), JOIN, channel
-			post server_name, MODE, channel, "+o", nick
+			post server_name, MODE, channel, "+v", nick
 			save_config
 		else
 			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
@@ -627,7 +644,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			@log.debug [id, nick, mesg]
 			if nick == @nick # 自分のときは TOPIC に
-				post generate_prefix(user), TOPIC, main_channel, untinyurl(mesg)
+				post @prefix, TOPIC, main_channel, mesg
 			else
 				message(user, main_channel, mesg)
 			end
@@ -647,16 +664,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mesg = decode_utf7(mesg)
 		# time = Time.parse(status["created_at"]) rescue Time.now
 		m = { "&quot;" => "\"", "&lt;" => "<", "&gt;" => ">", "&amp;" => "&", "\n" => " " }
-		mesg.gsub!(Regexp.union(*m.keys)) { m[$&] }
-		mesg.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "")
+		mesg = mesg.gsub(Regexp.union(*m.keys)) { m[$&] }
+		mesg = mesg.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*$/, "") if @suffix_bl
+		mesg = untinyurl(mesg)
 	end
 
 	def generate_prefix(u, athack = false)
 		nick = u["screen_name"]
 		nick = "@#{nick}" if athack
 		user = u["id"]
-		host = api_base.host
-		host = "protected.#{host}" if u["protected"]
+		host = hostname u
 		"#{nick}!#{user}@#{host}"
 	end
 
@@ -701,7 +718,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@friends ||= []
 		friends = api("statuses/friends")
 		if first && !athack
-			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, friends.map{|i| "@#{i["screen_name"]}" }.join(" ")
+			names_list = friends.map {|i| "+#{i["screen_name"]}" }.join(" ")
+			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, names_list
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			prv_friends = @friends.map {|friend| generate_prefix friend, athack }
@@ -729,11 +747,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		# rate_limit["reset_time_in_seconds"] - Time.now.to_i
 	end
 
-	def freq(ratio)
+	def interval(ratio)
 		max   = (@opts["maxlimit"] || 100).to_i
 		limit = @hourly_limit < max ? @hourly_limit : max
 		f     = 3600 / (limit * ratio).round rescue nil
-		@log.debug "Frequency: #{f}"
+		@log.debug "Interval: #{f} seconds"
 		f
 	end
 
@@ -861,7 +879,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #		str.gsub!(/&#(x)?([0-9a-f]+);/i) do
 #			[$1 ? $2.hex : $2.to_i].pack("U")
 #		end
-		str    = untinyurl(str)
 		screen_name = sender["screen_name"]
 		sender["screen_name"] = @nicknames[screen_name] || screen_name
 		prefix = generate_prefix(sender)
@@ -874,7 +891,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def untinyurl(text)
-		text.gsub(%r"http://(?:(preview\.)?tin|rub)yurl\.com/[0-9a-z=]+"i) {|m|
+		text.gsub(%r{
+			http://
+			(?:
+			 (?: (preview\.)? tin | rub) yurl\.com
+			   | is\.gd | bit\.ly | ff\.im | twurl.nl
+			)
+			/[0-9a-z=-]+
+		}ix) {|m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
 			Net::HTTP.start(uri.host, uri.port) {|http|
@@ -920,6 +944,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		[]
 	end
 
+	def hostname(user)
+		user["protected"] ? "protected.#{api_base.host}" : api_base.host
+	end
+
 	class TypableMap < Hash
 		Roman = %w[
 			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
@@ -933,7 +961,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		def initialize(size = 1)
 			@seq  = Roman
-			@map  = {}
 			@n    = 0
 			@size = size
 		end

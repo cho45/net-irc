@@ -126,6 +126,7 @@ class Net::IRC::Server
 		# Set @nick.
 		def on_nick(m)
 			@nick = m.params[0]
+			@prefix &&= Prefix.new("#{@nick}!#{@user}@#{@host}")
 		end
 
 		# Default USER callback.
