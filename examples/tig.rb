@@ -528,8 +528,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_whois(m)
 		nick  = m.params[0]
 		users = []
-		users.push @me      if @me
-		users.push @friends if @friends
+		users.push @me if @me
+		users.concat @friends if @friends
 		f = users.find {|i| i["screen_name"].upcase == nick.upcase }
 		if f
 			host = hostname f
@@ -551,8 +551,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		case
 		when channel.downcase == main_channel
 			users = []
-			users.push @me      if @me
-			users.push @friends if @friends
+			users.push @me if @me
+			users.concat @friends if @friends
 			users.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
@@ -897,9 +897,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			http://
 			(?:
 			 (?: (preview\.)? tin | rub) yurl\.com
-			   | is\.gd | bit\.ly | ff\.im | twurl.nl
+			   | is\.gd | bit\.ly | ff\.im | twurl.nl | blip\.fm
 			)
-			/[0-9a-z=-]+
+			/~?[0-9a-z=-]+
 		}ix) {|m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
