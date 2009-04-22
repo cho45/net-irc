@@ -530,7 +530,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		users = []
 		users.push @me if @me
 		users.concat @friends if @friends
-		f = users.find {|i| i["screen_name"].upcase == nick.upcase }
+		f = users.find {|i| i["screen_name"].upcase == nick.upcase } ||
+		    api("users/show/#{nick}")
 		if f
 			host = hostname f
 			desc = f["name"]
