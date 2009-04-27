@@ -242,17 +242,24 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 			else
 				channel = "" if "##{channel}" == main_channel
 				rid = rid_for(reply) if reply
-				ret = api("statuses/update", {"status" => message, "in_reply_to_status_id" => rid, "keyword" => channel})
+				if @typo
+					log "typo mode. requesting..."
+					message.gsub!(/\\n/, "\n")
+					file = Net::HTTP.get(URI("http://lab.lowreal.net/test/haiku.rb/?text=" + URI.escape(message)))
+					ret = api("statuses/update", {"file" => file, "in_reply_to_status_id" => rid, "keyword" => channel})
+				else
+					ret = api("statuses/update", {"status" => message, "in_reply_to_status_id" => rid, "keyword" => channel})
+				end
 				log "Status Updated via API"
 			end
 			raise ApiFailed, "API failed" unless ret
 			check_timeline
 		rescue => e
-			@log.error [retry_count, e.inspect].inspect
+			@log.error [retry_count, e.message, e.inspect, e.backtrace].inspect
 			if retry_count > 0
 				retry_count -= 1
 				@log.debug "Retry to setting status..."
-				retry
+				# retry
 			else
 				log "Some Error Happened on Sending #{message}. #{e}"
 			end
@@ -315,6 +322,9 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 			else
 				post nil, NOTICE, main_channel, "No such id #{tid}"
 			end
+		when "typo"
+			@typo = !@typo
+			post nil, NOTICE, main_channel, "typo mode: #{@typo}"
 		end
 	rescue ApiFailed => e
 		log e.inspect
@@ -553,7 +563,32 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		req = nil
 		if require_post?(path)
 			req = Net::HTTP::Post.new(uri.path)
-			req.body = uri.query
+			if q["file"]
+				boundary = (rand(0x1_00_00_00_00_00) + 0x1_00_00_00_00_00).to_s(16)
+				@log.info boundary
+				req["content-type"] = "multipart/form-data; boundary=#{boundary}"
+
+				body = ""
+				q.each do |k, v|
+					body << "--#{boundary}\r\n"
+					if k == "file"
+						body << "Content-Disposition: form-data; name=\"#{k}\"; filename=\"temp.png\";\r\n"
+						body << "Content-Transfer-Encoding: binary\r\n"
+						body << "Content-Type: image/png\r\n"
+					else
+						body << "Content-Disposition: form-data; name=\"#{k}\";\r\n"
+					end
+					body << "\r\n"
+					body << v.to_s
+					body << "\r\n"
+				end
+				body << "--#{boundary}--\r\n"
+
+				req.body = body
+				uri.query = ""
+			else
+				req.body = uri.query
+			end
 		else
 			req = Net::HTTP::Get.new(uri.request_uri)
 		end
