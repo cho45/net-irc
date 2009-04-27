@@ -121,7 +121,7 @@ Force SSL for API.
 
 	/me in Sugamo, Tokyo, Japan
 
-### reply (re)
+### reply (re, mention)
 
 	/me reply ID blah, blah...
 
@@ -367,6 +367,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				else
 					src = @sources[rand(@sources.size)].first
 					ret = api("statuses/update", { :status => mesg, :source => src })
+					ret.delete("user")
+					@me.update("status" => ret)
 				end
 			else
 				# direct message
@@ -505,13 +507,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			# FIXME
 #		when "leave"
 #			# FIXME
-		when /^re(?:ply)?$/
+		when /^(?:mention|re(?:ply)?)$/ # reply, re, mention
 			tid = args.first
 			if st = @tmap[tid]
 				text = mesg.split(/\s+/, 4)[3]
-				ret  = api("statuses/update", { :status => text, :in_reply_to_status_id => "#{st["id"]}" })
+				src  = @sources[rand(@sources.size)].first
+				ret  = api("statuses/update", { :status => text, :source => src, :in_reply_to_status_id => "#{st["id"]}" })
 				if ret
-					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
+					msg = generate_status_message(st)
+					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f: #{msg} <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
+					ret.delete("user")
+					@me.update("status" => ret)
 				end
 			end
 		when /^spoo(o+)?f$/
