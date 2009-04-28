@@ -102,12 +102,12 @@ Force SSL for API.
 
 ### list (ls)
 
-	/me list NICK_or_screen_name
+	/me list NICK [NUMBER]
 
 ### fav (favorite, favourite, unfav, unfavorite, unfavourite)
 
-	/me fav ID [ID...]
-	/me unfav ID [ID...]
+	/me fav [ID...]
+	/me unfav [ID...]
 
 ### link (ln)
 
@@ -115,7 +115,7 @@ Force SSL for API.
 
 ### destroy (del, delete, miss, oops, remove, rm)
 
-	/me destroy ID [ID...]
+	/me destroy [ID...]
 
 ### in (location)
 
@@ -216,11 +216,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_user(m)
 		super
 		@real, *@opts = (@opts.name || @real).split(/\s+/)
-		@opts = @opts.inject({}) {|r,i|
+		@opts = @opts.inject({}) do |r,i|
 			key, value = i.split("=")
 			key = "mentions" if key == "replies" # backcompat
 			r.update(key => value || true)
-		}
+		end
 
 		@me = api("account/verify_credentials")
 		if @me
@@ -367,6 +367,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				else
 					src = @sources[rand(@sources.size)].first
 					ret = api("statuses/update", { :status => mesg, :source => src })
+					if ret["truncated"]
+						log "Oops! Your update was over 140 characters. We sent the short version" <<
+						    " to your friends (they can view the entire update on the Web <" <<
+						    permalink(ret) << ">)."
+					end
 					ret.delete("user")
 					@me.update("status" => ret)
 				end
@@ -391,12 +396,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_ctcp(target, mesg)
 		_, command, *args = mesg.split(/\s+/)
 		case command
-		when "call" # /me call <twitter-id> as <nickname>
+		when "call"
+			return log("/me call <Twitter_screen_name> as <IRC_nickname>") if args.size < 2
 			screen_name = args[0]
 			nickname    = args[2] || args[1] # allow omitting 'as'
 			if nickname == "is"
 				@nicknames.delete(screen_name)
-				log "Removed nickname for #{screen_name}"
+				log "Removed the nickname for #{screen_name}"
 			else
 				@nicknames[screen_name] = nickname
 				log "Call #{screen_name} as #{nickname}"
@@ -410,6 +416,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Can't load iconv."
 			end
 		when "list", "ls"
+			return log("/me list <NICK> [<NUM>]") if args.empty?
 			nick = args.first
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
@@ -419,28 +426,57 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			res = api("statuses/user_timeline/#{nick}", { :count => "#{count}" }).reverse_each do |s|
 				@log.debug s
 				time = Time.parse(s["created_at"]) rescue Time.now
-				post to, NOTICE, main_channel, "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
+				post to, NOTICE, main_channel,
+				     "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
 			end
 			unless res
 				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
 		when /^(un)?fav(?:ou?rite)?$/
-			method, prefix = $1.nil? ? ["create", "F"] : ["destroy", "Unf"]
-			args.each_with_index do |tid, i|
-				if st = @tmap[tid]
-					sleep 1 if i > 0
-					res = api("favorites/#{method}/#{st["id"]}")
-					log "#{prefix}av: #{res["user"]["screen_name"]}: #{res["text"]}"
+		# fav, favorite, favourite, unfav, unfavorite, unfavourite
+			method   = $1.nil? ? "create" : "destroy"
+			entered  = $&.capitalize
+			statuses = []
+			if args.empty?
+				if method == "create"
+					id = @timeline.last
+					@tmap.each_value do |v|
+						if v["id"] == id
+							statuses.push v
+							break
+						end
+					end
 				else
-					log "No such ID #{tid}"
+					@favorites ||= api("favorites").reverse
+					return log("You've never favorite yet. No favorites to unfavorite.") if @favorites.empty?
+					statuses.push @favorites.last
 				end
+			else
+				args.each do |tid|
+					if status = @tmap[tid]
+						statuses.push status
+					else
+						log "No such ID #{colored_tid(tid)}"
+					end
+				end
+			end
+			@favorites ||= []
+			statuses.each do |status|
+				res = api("favorites/#{method}/#{status["id"]}")
+				log "#{entered}: #{res["user"]["screen_name"]}: #{res["text"]}"
+				if method == "create"
+					@favorites.push res
+				else
+					@favorites.delete_if {|i| i["id"] == res["id"] }
+				end
+				sleep 1
 			end
 		when "link", "ln"
 			args.each do |tid|
-				if st = @tmap[tid]
-					log "#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}"
+				if @tmap[tid]
+					log "#{colored_tid(tid)}: #{permalink(@tmap[tid])}"
 				else
-					log "No such ID #{tid}"
+					log "No such ID #{colored_tid(tid)}"
 				end
 			end
 #		when /^ratios?$/
@@ -461,16 +497,33 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			end
 #			intervals = @ratio.map {|ratio| interval ratio }
 #			log "Intervals: #{intervals.join(", ")}"
-		when /^(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))$/ # destroy, delete, del, remove, rm, miss, oops
-			args.each_with_index do |tid, i|
-				if st = @tmap[tid]
-					sleep 1 if i > 0
-					res = api("statuses/destroy/#{st["id"]}")
-					log "Destroyed: #{res["text"]}"
-				else
-					log "No such ID #{tid}"
+		when /^(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))$/
+		# destroy, delete, del, remove, rm, miss, oops
+			statuses = []
+			if args.empty?
+				statuses.push @me["status"]
+			else
+				args.each do |tid|
+					if status = @tmap[tid]
+						if status["user"]["screen_name"] == @nick
+							statuses.push status
+						else
+							log "The status you specified by the ID #{colored_tid(tid)} is not yours."
+						end
+					else
+						log "No such ID #{colored_tid(tid)}"
+					end
 				end
 			end
+			b = false
+			statuses.each do |status|
+				res = api("statuses/destroy/#{status["id"]}")
+				@tmap.delete_if {|k, v| v["id"] == res["id"] }
+				b = status["id"] == @me["status"]["id"]
+				log "Destroyed: #{res["text"]}"
+				sleep 1
+			end
+			@me = api("account/verify_credentials") if b
 		when "name"
 			name = mesg.split(/\s+/, 3)[2]
 			unless name.nil?
@@ -509,16 +562,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 #			# FIXME
 		when /^(?:mention|re(?:ply)?)$/ # reply, re, mention
 			tid = args.first
-			if st = @tmap[tid]
+			if status = @tmap[tid]
 				text = mesg.split(/\s+/, 4)[3]
 				src  = @sources[rand(@sources.size)].first
-				ret  = api("statuses/update", { :status => text, :source => src, :in_reply_to_status_id => "#{st["id"]}" })
-				if ret
-					msg = generate_status_message(st)
-					log "Status updated (In reply to \x03#{@opts["tid"] || 10}[#{tid}]\x0f: #{msg} <#{api_base + st["user"]["screen_name"]}/statuses/#{st["id"]}>)"
-					ret.delete("user")
-					@me.update("status" => ret)
+				ret  = api("statuses/update", { :status => text, :source => src,
+				                                :in_reply_to_status_id => "#{status["id"]}" })
+				if ret["truncated"]
+					log "Oops! Your update was over 140 characters. We sent the short version" <<
+					    " to your friends (they can view the entire update on the Web <" <<
+					    permalink(ret) << ">)."
 				end
+				msg = generate_status_message(status)
+				url = permalink(status)
+				log "Status updated (In reply to #{colored_tid(tid)}: #{msg} <#{url}>)"
+				ret.delete("user")
+				@me.update("status" => ret)
 			end
 		when /^spoo(o+)?f$/
 			@sources = args.empty? \
@@ -648,7 +706,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			tid  = @tmap.push(status)
 
 			if @opts["tid"]
-				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
+				mesg << " " << colored_tid(tid)
 			end
 
 			@log.debug [id, nick, mesg]
@@ -696,12 +754,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			created_at = Time.parse(mention["created_at"]) rescue next
 			next if created_at < time
 
+			@timeline << id
 			user = mention["user"]
 			mesg = generate_status_message(mention)
 			tid  = @tmap.push(mention)
 
 			if @opts["tid"]
-				mesg = "%s \x03%s[%s]" % [mesg, @opts["tid"] || 10, tid]
+				mesg << " " << colored_tid(tid)
 			end
 
 			@log.debug [id, user["screen_name"], mesg]
@@ -907,18 +966,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			   | is\.gd | bit\.ly | ff\.im | twurl.nl | blip\.fm
 			)
 			/~?[0-9a-z=-]+
-		}ix) {|m|
+		}ix) do |m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
-			Net::HTTP.start(uri.host, uri.port) {|http|
+			Net::HTTP.start(uri.host, uri.port) do |http|
 				http.open_timeout = 3
 				begin
 					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
 				rescue Timeout::Error
 					m
 				end
-			}
-		}
+			end
+		end
 	end
 
 	def decode_utf7(str)
@@ -947,30 +1006,38 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@sources
 	end
 
-	def fetch_suffix_bl
+	def fetch_suffix_bl(r = [])
 		source = Net::HTTP.get("svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt")
 		if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
 			source.force_encoding("UTF-8")
 		end
 		source.split
 	rescue
-		[]
+		r
 	end
 
 	def hostname(user)
 		user["protected"] ? "protected.#{api_base.host}" : api_base.host
 	end
 
+	def colored_tid(tid)
+		"\x03%s[%s]\x0f" % [@opts["tid"] || 10, tid]
+	end
+
+	def permalink(status)
+		"#{api_base}#{status["user"]["screen_name"]}/statuses/#{status["id"]}"
+	end
+
 	class TypableMap < Hash
 		Roman = %w[
 			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
-		].unshift("").map {|consonant|
+		].unshift("").map do |consonant|
 			case consonant
 				when "y", /^.{2}/ then %w|a u o|
 				when "q"          then %w|a i e o|
 				else                   %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
-		}.flatten
+		end.flatten
 
 		def initialize(size = 1)
 			@seq  = Roman
@@ -991,7 +1058,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id = generate(@n)
 			self[id] = obj
 			@n += 1
-			@n = @n % (@seq.size ** @size)
+			@n %= @seq.size ** @size
 			id
 		end
 		alias << push
