@@ -948,7 +948,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def fetch_suffix_bl
-		Net::HTTP.get("svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt").split
+		source = Net::HTTP.get("svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt")
+		if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
+			source.force_encoding("UTF-8")
+		end
+		source.split
 	rescue
 		[]
 	end
