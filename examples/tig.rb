@@ -90,11 +90,11 @@ Use IM instead of any APIs (e.g. post)
 
 ### maxlimit=<hourly limit>
 
-### checkrls=<interval seconds>
-
 ### secure
 
 ### clientspoofing
+
+### httpproxy=[<user>[:<password>]@]<address>[:<port>]
 
 Force SSL for API.
 
@@ -166,8 +166,6 @@ require "yaml"
 require "pathname"
 require "cgi"
 
-Net::HTTP.version_1_2
-
 class TwitterIrcGateway < Net::IRC::Server::Session
 	def server_name
 		"twittergw"
@@ -222,6 +220,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			r.update(key => value || true)
 		end
 
+		@hourly_limit = hourly_limit
+
 		@me = api("account/verify_credentials")
 		if @me
 			@user   = @me["id"].to_s
@@ -255,25 +255,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
-
-		@hourly_limit = hourly_limit
-
-		@check_rate_limit_thread = Thread.start do
-			loop do
-				begin
-					check_rate_limit
-				rescue APIFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep @opts["checkrls"] || 3600 # 1 hour
-			end
-		end
-		sleep 3
 
 		@ratio = (@opts["ratio"] || "11:3").split(":").map {|r| r.to_f }
 		@ratio = Struct.new(:timeline, :friends, :mentions).new(*@ratio)
@@ -342,12 +323,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill    rescue nil
-		@check_mentions_thread.kill   rescue nil
-		@check_timeline_thread.kill   rescue nil
-		@check_rate_limit_thread.kill rescue nil
-		@im_thread.kill               rescue nil
-		@im.disconnect                rescue nil
+		@check_friends_thread.kill  rescue nil
+		@check_mentions_thread.kill rescue nil
+		@check_timeline_thread.kill rescue nil
+		@im_thread.kill             rescue nil
+		@im.disconnect              rescue nil
 	end
 
 	def on_privmsg(m)
@@ -361,7 +341,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		begin
 			if target =~ /^#/
-				if @opts["alwaysim"] && @im && @im.connected? # in jabber mode, using jabber post
+				if @opts["alwaysim"] and @im and @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, mesg)
 					post @prefix, TOPIC, main_channel, mesg
 				else
@@ -397,7 +377,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		_, command, *args = mesg.split(/\s+/)
 		case command
 		when "call"
-			return log("/me call <Twitter_screen_name> as <IRC_nickname>") if args.size < 2
+			if args.size < 2
+				log "/me call <Twitter_screen_name> as <IRC_nickname>"
+				return
+			end
 			screen_name = args[0]
 			nickname    = args[2] || args[1] # allow omitting 'as'
 			if nickname == "is"
@@ -416,7 +399,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Can't load iconv."
 			end
 		when "list", "ls"
-			return log("/me list <NICK> [<NUM>]") if args.empty?
+			if args.empty?
+				log "/me list <NICK> [<NUM>]"
+				return
+			end
 			nick = args.first
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
@@ -448,7 +434,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				else
 					@favorites ||= api("favorites").reverse
-					return log("You've never favorite yet. No favorites to unfavorite.") if @favorites.empty?
+					if @favorites.empty?
+						log "You've never favorite yet. No favorites to unfavorite."
+						return
+					end
 					statuses.push @favorites.last
 				end
 			else
@@ -462,6 +451,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 			@favorites ||= []
 			statuses.each do |status|
+				if method == "create" and @favorites.find {|i| i["id"] == status["id"] }
+					log "The status is already favorited! <#{permalink(status)}>"
+					next
+				end
 				res = api("favorites/#{method}/#{status["id"]}")
 				log "#{entered}: #{res["user"]["screen_name"]}: #{res["text"]}"
 				if method == "create"
@@ -480,14 +473,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 #		when /^ratios?$/
-#			if !args.empty?
-#				if args.size < 2 ||
-#				   (@opts["mentions"] && args.size < 3)
-#					return log("/me ratios <timeline> <frends>[ <mentions>]")
+#			unless args.empty?
+#				if args.size < 2 or
+#				   (@opts["mentions"] and args.size < 3)
+#					log "/me ratios <timeline> <frends>[ <mentions>]"
+#					return
 #				end
 #				ratios = args.map {|ratio| ratio.to_f }
 #				if ratios.any? {|ratio| ratio <= 0.0 }
-#					return log("Ratios must be greater than 0.0 and fractional values are permitted.")
+#					log "Ratios must be greater than 0.0 and fractional values are permitted."
+#					return
 #				end
 #				footing = ratios.inject {|sum, ratio| sum + ratio }
 #				@ratio[:timeline] = ratios[0]
@@ -523,7 +518,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Destroyed: #{res["text"]}"
 				sleep 1
 			end
-			@me = api("account/verify_credentials") if b
+			if b
+				@me = api("account/verify_credentials")
+				post @prefix, TOPIC, main_channel, generate_status_message(@me["status"])
+			end
 		when "name"
 			name = mesg.split(/\s+/, 3)[2]
 			unless name.nil?
@@ -697,7 +695,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		q[:since_id] = @timeline.last.to_s if @timeline.last
 		api("statuses/friends_timeline", q).reverse_each do |status|
 			id = status["id"]
-			next if id.nil? || @timeline.include?(id)
+			next if id.nil? or @timeline.include?(id)
 
 			@timeline << id
 			user = status["user"]
@@ -749,7 +747,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@prev_time_m = Time.now
 		api("statuses/mentions").reverse_each do |mention|
 			id = mention["id"]
-			next if id.nil? || @timeline.include?(id)
+			next if id.nil? or @timeline.include?(id)
 
 			created_at = Time.parse(mention["created_at"]) rescue next
 			next if created_at < time
@@ -785,7 +783,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		athack = @opts["athack"]
 		@friends ||= []
 		friends = api("statuses/friends")
-		if first && !athack
+		if first and not athack
 			names_list = friends.map {|i| "+#{i["screen_name"]}" }.join(" ")
 			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, names_list
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
@@ -794,25 +792,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			now_friends = friends.map {|friend| generate_prefix friend, athack }
 
 			# Twitter API bug?
-			return if !first && (now_friends.length - prv_friends.length).abs > 10
+			return if not first and (now_friends.length - prv_friends.length).abs > 10
 
 			(prv_friends - now_friends).each {|part| post part, PART, main_channel, "" }
 			sleep 1
 			(now_friends - prv_friends).each {|join| post join, JOIN, main_channel }
 		end
 		@friends = friends
-	end
-
-	def check_rate_limit
-		@log.debug rate_limit = api("account/rate_limit_status")
-		if rate_limit.key?("hourly_limit") && @hourly_limit != rate_limit["hourly_limit"]
-			msg = "Rate limit was changed: #{@hourly_limit} to #{rate_limit["hourly_limit"]}"
-			log msg
-			@log.info msg
-			@hourly_limit = rate_limit["hourly_limit"]
-		end
-		# rate_limit["remaining_hits"] < 1
-		# rate_limit["reset_time_in_seconds"] - Time.now.to_i
 	end
 
 	def interval(ratio)
@@ -892,49 +878,58 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api(path, q = {}, opt = {})
-		ret     = {}
-		headers = { "User-Agent" => @user_agent }
-		headers["If-Modified-Since"] = q["since"] if q.key?("since")
-
 		q["source"] ||= api_source
 
-		path = path.sub(%r{^/+}, "")
-		uri  = api_base.dup
-		if @opts["secure"]
-			uri.scheme = "https"
-			uri.port   = 443
-		end
+		path     = path.sub(%r{^/+}, "")
+		uri      = api_base.dup
+		uri.port = 443 if @opts["secure"]
 		uri.path += "#{path}.json"
 		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
-		case
-		when require_post?(path)
-			req = Net::HTTP::Post.new(uri.path, headers)
-			req.body = uri.query
-		when path.include?("/destroy/") # require_delete?
-			req = Net::HTTP::Delete.new(uri.path, headers)
-			req.body = uri.query
-		else
-			req = Net::HTTP::Get.new(uri.request_uri, headers)
+		req = case
+		when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
+		when require_post?(path)        then Net::HTTP::Post.new   uri.path
+		else                                 Net::HTTP::Get.new    uri.request_uri
 		end
+		req.body = uri.query if req.request_body_permitted?
+		req.add_field("User-Agent", @user_agent)
+		req.add_field("If-Modified-Since", q["since"]) if q.key?("since")
 		req.basic_auth(@real, @pass)
 		@log.debug uri.inspect
 
-		http = Net::HTTP.new(uri.host, uri.port)
-		if uri.scheme == "https"
-			http.use_ssl     = true
-			http.verify_mode = OpenSSL::SSL::VERIFY_NONE # FIXME
+		http = case
+		when /^(?:([^:@]+)(?::([^@]+))?@)?([^:]+)(?::(\d+))?$/ === @opts["httpproxy"]
+			Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
+		when ENV["HTTP_PROXY"], ENV["http_proxy"]
+			proxy = URI(ENV["HTTP_PROXY"] || ENV["http_proxy"])
+			Net::HTTP.new(uri.host, uri.port, proxy.host, proxy.port, proxy.user, proxy.password)
+		else
+			Net::HTTP.new(uri.host, uri.port)
 		end
-		case ret = http.request(req)
-		when Net::HTTPOK # 200
-			ret = JSON.parse(ret.body)
-			if ret.kind_of?(Hash) && !opt[:suppress_errors] && ret["error"]
-				raise APIFailed, "Server Returned Error: #{ret["error"]}"
+		http.use_ssl     = !@opts["secure"].nil?
+		http.verify_mode = OpenSSL::SSL::VERIFY_NONE if http.use_ssl?
+
+		ret = http.request req
+
+		if ret.key?("X-RateLimit-Limit")
+			hourly_limit = ret["X-RateLimit-Limit"].to_i
+			if @hourly_limit != hourly_limit
+				msg = "The rate limit per hour was changed: #{@hourly_limit} to #{hourly_limit}"
+				log msg
+				@log.info msg
+				@hourly_limit = hourly_limit
 			end
-			ret
+		end
+
+		case ret
+		when Net::HTTPOK # 200
+			JSON.parse ret.body
 		when Net::HTTPNotModified # 304
 			[]
-		when Net::HTTPBadRequest # 400
-			# exceeded the rate limitation
+		when Net::HTTPBadRequest # 400: exceeded the rate limitation
+			if ret.key?("X-RateLimit-Reset")
+				s = Time.now - Time.at(ret["X-RateLimit-Reset"].to_i)
+				log "#{(s / 60.0).ceil} min remaining."
+			end
 			raise APIFailed, "#{ret.code}: #{ret.message}"
 		else
 			raise APIFailed, "Server Returned #{ret.code} #{ret.message}"
@@ -966,17 +961,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			   | is\.gd | bit\.ly | ff\.im | twurl.nl | blip\.fm
 			)
 			/~?[0-9a-z=-]+
-		}ix) do |m|
-			uri = URI(m)
+		}ix) do |url|
+			uri = URI(url)
 			uri.host = uri.host.sub($1, "") if $1
-			Net::HTTP.start(uri.host, uri.port) do |http|
-				http.open_timeout = 3
+			req = Net::HTTP::Head.new uri.request_uri
+			req.add_field "User-Agent", @user_agent
+			/^(?:([^:@]+)(?::([^@]+))?@)?([^:]+)(?::(\d+))?$/.match(@opts["httpproxy"])
+			http = Net::HTTP.new uri.host, uri.port, $3, $4.to_i, $1, $2
+			http.open_timeout = 3
+			http.request(req) do |res|
 				begin
-					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
+					if res.is_a?(Net::HTTPRedirection) and res.key?("Location")
+						url = res["Location"]
+					end
 				rescue Timeout::Error
-					m
 				end
 			end
+			url
 		end
 	end
 
@@ -993,10 +994,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def fetch_sources(n = nil)
-		json = Net::HTTP.get "wedata.net", "/databases/TwitterSources/items.json"
+		json = http_get URI("http://wedata.net/databases/TwitterSources/items.json")
 		sources = JSON.parse json
 		sources.map! {|item| [item["data"]["source"], item["name"]] }.push ["", "web"]
-		if n.is_a?(Integer) && n < sources.size
+		if n.is_a?(Integer) and n < sources.size
 			sources = Array.new(n) { sources.delete_at(rand(sources.size)) }.compact
 		end
 		sources
@@ -1007,13 +1008,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def fetch_suffix_bl(r = [])
-		source = Net::HTTP.get("svn.coderepos.org", "/share/platform/twitterircgateway/suffixesblacklist.txt")
+		source = http_get URI("http://svn.coderepos.org/share/platform/twitterircgateway/suffixesblacklist.txt")
 		if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
 			source.force_encoding("UTF-8")
 		end
 		source.split
 	rescue
 		r
+	end
+
+	def http_get(uri)
+		req = Net::HTTP::Get.new uri.request_uri
+		req.add_field("User-Agent", @user_agent)
+		/^(?:([^:@]+)(?::([^@]+))?@)?([^:]+)(?::(\d+))?$/.match(@opts["httpproxy"])
+		http = Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
+		res = http.request req
+		res.body
 	end
 
 	def hostname(user)
@@ -1033,9 +1043,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
 		].unshift("").map do |consonant|
 			case consonant
-				when "y", /^.{2}/ then %w|a u o|
-				when "q"          then %w|a i e o|
-				else                   %w|a i u e o|
+			when "y", /^.{2}/ then %w|a u o|
+			when "q"          then %w|a i e o|
+			else                   %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
 		end.flatten
 
@@ -1133,7 +1143,7 @@ if __FILE__ == $0
 #		[:INT, :TERM, :HUP].each do |sig|
 #			Signal.trap sig, "EXIT"
 #		end
-#		return yield if $DEBUG || foreground
+#		return yield if $DEBUG or foreground
 #		Process.fork do
 #			Process.setsid
 #			Dir.chdir "/"
