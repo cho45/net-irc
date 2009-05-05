@@ -176,7 +176,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def main_channel
-		"#twitter"
+		@opts["main_channel"] || "#twitter"
 	end
 
 	def api_base
@@ -184,7 +184,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api_source
-		"tigrb"
+		@opts["api_source"] || "tigrb"
 	end
 
 	def jabber_bot_id
@@ -213,6 +213,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_user(m)
 		super
+
 		@real, *@opts = (@opts.name || @real).split(/\s+/)
 		@opts = @opts.inject({}) do |r,i|
 			key, value = i.split("=")
@@ -232,6 +233,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post @prefix, JOIN, main_channel
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 		post @prefix, TOPIC, main_channel, generate_status_message(@me["status"]) if @me
+
+
+		post @prefix, JOIN, main_channel
+		post server_name, MODE, main_channel, "+o", @prefix.nick
 
 		@tmap = TypableMap.new
 
@@ -708,7 +713,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 
 			@log.debug [id, nick, mesg]
-			if nick == @nick # 自分のときは TOPIC に
+			if nick == @me["screen_name"].to_s # 自分のときは TOPIC に
 				post @prefix, TOPIC, main_channel, mesg
 			else
 				message(user, main_channel, mesg)
