@@ -165,7 +165,7 @@ class Net::IRC::Server
 		private
 		# Post message to server.
 		#
-		#     include Net::IRC::Constans
+		#     include Net::IRC::Constants
 		#     post prefix, PRIVMSG, "#channel", "foobar"
 		def post(prefix, command, *params)
 			m = Message.new(prefix, command, params.map {|s|
