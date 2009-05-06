@@ -596,8 +596,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick  = m.params[0]
 		users = [@me]
 		users.concat @friends if @friends
-		user = users.find {|i| i["screen_name"].upcase == nick.upcase } ||
-		       api("users/show/#{nick}") rescue nil
+		user = users.find {|i| i["screen_name"].upcase == nick.upcase }
+		unless user
+			ret = api("users/username_available", { :username => nick })
+			if ret and not ret["valid"]
+				user = api("users/show/#{nick}")
+			end
+		end
 		if user
 			host = hostname user
 			desc = user["name"]
@@ -931,7 +936,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		path     = path.sub(%r{\A/+}, "")
 		uri      = api_base.dup
 		uri.port = 443 if @opts["secure"]
-		uri.path += "#{path}.json"
+		uri.path += path
+		if path != "users/username_available"
+			uri.path += ".json"
+		else
+			q.delete("source")
+		end
 		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 		req = case
 		when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
