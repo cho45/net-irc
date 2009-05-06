@@ -102,6 +102,7 @@ class Net::IRC::Client
 	#     post PRIVMSG, "#channel", "foobar"
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
+			s.force_encoding("ASCII-8BIT") if s.respond_to? :force_encoding
 			s ? s.gsub(/[\r\n]/, " ") : ""
 		})
 

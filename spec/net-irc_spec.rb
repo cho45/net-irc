@@ -283,6 +283,31 @@ describe Net::IRC, "server and client" do
 		message.to_s.should == "PRIVMSG #channel :message a b c\r\n"
 	end
 
+	if defined? Encoding
+		it "dummy encoding: client posts PRIVMSG and server receives it." do
+			@client.instance_eval do
+				s = "てすと".force_encoding("UTF-8")
+				post PRIVMSG, "#channel", s
+			end
+
+			message = server_q.pop
+			message.should be_a_kind_of(Net::IRC::Message)
+			message.to_s.should == "PRIVMSG #channel てすと\r\n"
+		end
+
+		it "dummy encoding: client posts PRIVMSG and server receives it." do
+			@client.instance_eval do
+				s = "てすと".force_encoding("UTF-8")
+				s.encode!("ISO-2022-JP")
+				post PRIVMSG, "#channel", s
+			end
+
+			message = server_q.pop
+			message.should be_a_kind_of(Net::IRC::Message)
+			message.to_s.should == "PRIVMSG #channel \e$B$F$9$H\e(B\r\n"
+		end
+	end
+
 	it "should allow lame RPL_WELCOME (not prefix but nick)" do
 		client = @client
 		TestServerSession.instance.instance_eval do
