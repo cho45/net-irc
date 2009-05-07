@@ -147,6 +147,10 @@ Force SSL for API.
 	/me spoo[o...]f
 	/me spoof tigrb twitterircgateway twitt web mobileweb
 
+### bot (drone)
+
+	/me bot NICK [NICK...]
+
 ## License
 
 Ruby's by cho45
@@ -169,6 +173,8 @@ require "yaml"
 require "pathname"
 require "cgi"
 require "json"
+
+module Net::IRC::Constants; RPL_WHOISBOT = '335' end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
 	def server_name
@@ -206,6 +212,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@groups    = {}
 		@channels  = [] # joined channels (groups)
 		@nicknames = {}
+		@drones    = []
 		@config    = Pathname.new(ENV["HOME"]) + ".tig"
 		@limit     = hourly_limit
 		load_config
@@ -239,12 +246,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			finish
 		end
 
-		@user   = @me["id"].to_s
+		@user   = "id=%09d" % @me["id"]
 		@host   = hostname(@me)
 		@prefix = Prefix.new("#{@me["screen_name"]}!#{@user}@#{@host}")
 
 		#post NICK, @me["screen_name"] if @nick != @me["screen_name"]
 		post @prefix, JOIN, main_channel
+		post server_name, MODE, main_channel, "+mt"
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 		post @prefix, TOPIC, main_channel, generate_status_message(@me["status"])
 
@@ -405,6 +413,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@nicknames[screen_name] = nickname
 				log "Call #{screen_name} as #{nickname}"
 			end
+			#save_config
 		when "utf7"
 			begin
 				require "iconv"
@@ -514,7 +523,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			else
 				args.each do |tid|
 					if status = @tmap[tid]
-						if status["user"]["id"].to_s == @user
+						if "id=%09d" % status["user"]["id"] == @user
 							statuses.push status
 						else
 							log "The status you specified by the ID #{colored_tid(tid)} is not yours."
@@ -587,6 +596,26 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			                                    : [[api_source, "tig.rb"]] \
 			         : args.map {|src| [src.upcase != "WEB" ? src : "", "=#{src}"] }
 			log @sources.map {|src| src[1] }.sort.join(", ")
+		when "bot", "drone"
+			if args.empty?
+				log "/me bot <NICK> [<NICK>...]"
+				return
+			end
+			args.each do |bot|
+				unless user = @friends.find {|i| i["screen_name"].casecmp(bot).zero? }
+					post server_name, ERR_NOSUCHNICK, bot, "No such nick/channel"
+					next
+				end
+				if @drones.delete(user["id"])
+					mode = "-#{mode}"
+					log "#{bot} is no longer a bot."
+				else
+					@drones << user["id"]
+					mode = "+#{mode}"
+					log "Marks #{bot} as a bot."
+				end
+			end
+			save_config
 		end
 	rescue APIFailed => e
 		log e.inspect
@@ -596,7 +625,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick  = m.params[0]
 		users = [@me]
 		users.concat @friends if @friends
-		user = users.find {|i| i["screen_name"].upcase == nick.upcase }
+		user = users.find {|i| i["screen_name"].casecmp(nick).zero? }
 		unless user
 			ret = api("users/username_available", { :username => nick })
 			if ret and not ret["valid"]
@@ -609,10 +638,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			desc << " / #{user["description"]}".gsub(/\s+/, " ") unless user["description"].empty?
 			idle = (Time.now - Time.parse(user["status"]["created_at"])).to_i rescue 0
 			sion = Time.parse(user["created_at"]).to_i rescue 0
-			post server_name, RPL_WHOISUSER,   @nick, nick, "#{user["id"]}", host, "*", desc
+			post server_name, RPL_WHOISUSER,   @nick, nick, "id=%09d" % user["id"], host, "*", desc
 			post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, "SoMa neighborhood of San Francisco, CA"
 			post server_name, RPL_WHOISIDLE,   @nick, nick, "#{idle}", "#{sion}", "seconds idle, signon time"
 			post server_name, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
+			if @drones.include?(user["id"])
+				post server_name, RPL_WHOISBOT, @nick, nick, "is a \002Bot\002 on #{server_name}"
+			end
 		else
 			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
@@ -621,9 +653,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_who(m)
 		channel = m.params[0]
 		case
-		when channel.upcase == main_channel.upcase
+		when channel.casecmp(main_channel).zero?
 			users = [@me]
-			users.concat @friends if @friends
+			users.concat @friends.reverse if @friends
 			users.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when @groups.key?(channel)
@@ -639,22 +671,28 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
 			#             :<hopcount> <real name>"
 			nick = u["screen_name"]
-			user = u["id"].to_s
+			user = "id=%09d" % u["id"]
 			host = hostname u
 			serv = api_base.host
 			real = u["name"]
-			post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*+", "0 #{real}"
+			mode = case u["screen_name"]
+				when @me["screen_name"]        then "@"
+				#when @drones.include?(u["id"]) then "%" # FIXME
+				else                                "+"
+			end
+			post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*#{mode}", "0 #{real}"
 		end
 	end
 
 	def on_join(m)
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
-			next if channel.upcase == main_channel.upcase
+			next if channel.casecmp(main_channel).zero?
 
 			@channels << channel
 			@channels.uniq!
 			post @prefix, JOIN, channel
+			post server_name, MODE, channel, "+mti"
 			post server_name, MODE, channel, "+o", @prefix.nick
 			save_config
 		end
@@ -662,7 +700,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_part(m)
 		channel = m.params[0]
-		return if channel.upcase == main_channel.upcase
+		return if channel.casecmp(main_channel).zero?
 
 		@channels.delete(channel)
 		post @nick, PART, channel, "Ignore group #{channel}, but setting is alive yet."
@@ -670,9 +708,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_invite(m)
 		nick, channel = *m.params
-		return if channel.upcase == main_channel.upcase
+		return if channel.casecmp(main_channel).zero?
 
-		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
+		f = (@friends || []).find {|i| i["screen_name"].casecmp(nick).zero? }
 		if f
 			((@groups[channel] ||= []) << f["screen_name"]).uniq!
 			post generate_prefix(f), JOIN, channel
@@ -687,7 +725,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel, nick, mes = *m.params
 		return if channel == main_channel
 
-		f = (@friends || []).find {|i| i["screen_name"].upcase == nick.upcase }
+		f = (@friends || []).find {|i| i["screen_name"].casecmp(nick).zero? }
 		if f
 			(@groups[channel] ||= []).delete(f["screen_name"])
 			post nick, PART, channel
@@ -703,7 +741,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_topic(m)
 		channel  = m.params[0]
-		return if channel.upcase != main_channel.upcase
+		return unless channel.casecmp(main_channel).zero?
 
 		begin
 			require "levenshtein"
@@ -784,7 +822,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def generate_prefix(u, athack = false)
 		nick = u["screen_name"]
 		nick = "@#{nick}" if athack
-		user = u["id"]
+		user = "id=%09d" % u["id"]
 		host = hostname u
 		"#{nick}!#{user}@#{host}"
 	end
@@ -831,7 +869,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@friends ||= []
 		friends = api("statuses/friends")
 		if first and not athack
-			names_list = friends.map {|i| "+#{i["screen_name"]}" }.join(" ")
+			names_list = friends.map do |i|
+				name   = i["screen_name"]
+				#prefix = @drones.include?(i["id"]) ? "%" : "+" # FIXME
+				prefix = "+"
+				"#{prefix}#{name}"
+			end
+			names_list = names_list.push("@#{@nick}").reverse.join(" ")
 			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, names_list
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
@@ -843,7 +887,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			(prv_friends - now_friends).each {|part| post part, PART, main_channel, "" }
 			sleep 1
-			(now_friends - prv_friends).each {|join| post join, JOIN, main_channel }
+			params = []
+			(now_friends - prv_friends).each do |join|
+				post join, JOIN, main_channel
+				params << join
+				if params.size == 3
+					post server_name, MODE, main_channel, "+vvv", *params
+					params = []
+				end
+			end
+			unless params.empty?
+				mode = "+#{"v" * params.size}"
+				post server_name, MODE, main_channel, mode, *params
+			end
 		end
 		@friends = friends
 	end
@@ -899,19 +955,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def save_config
 		config = {
-			:channels => @channels,
-			:groups   => @groups,
+			:groups    => @groups,
+			:channels  => @channels,
+			#:nicknames => @nicknames,
+			:drones    => @drones,
 		}
-		@config.open("w") do |f|
-			YAML.dump(config, f)
-		end
+		@config.open("w") {|f| YAML.dump(config, f) }
 	end
 
 	def load_config
 		@config.open do |f|
 			config = YAML.load(f)
-			@channels = config[:channels]
-			@groups   = config[:groups]
+			@groups    = config[:groups]    || {}
+			@channels  = config[:channels]  || []
+			#@nicknames = config[:nicknames] || {}
+			@drones    = config[:drones]    || []
 		end
 	rescue Errno::ENOENT
 	end
@@ -944,9 +1002,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
 		req = case
-		when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
-		when require_post?(path)        then Net::HTTP::Post.new   uri.path
-		else                                 Net::HTTP::Get.new    uri.request_uri
+			when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
+			when require_post?(path)        then Net::HTTP::Post.new   uri.path
+			else                                 Net::HTTP::Get.new    uri.request_uri
 		end
 		req.body = uri.query if req.request_body_permitted?
 		req.add_field("User-Agent", user_agent)
@@ -955,13 +1013,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.debug uri.inspect
 
 		http = case
-		when RE_HTTPPROXY === @opts["httpproxy"]
-			Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
-		when ENV["HTTP_PROXY"], ENV["http_proxy"]
-			proxy = URI(ENV["HTTP_PROXY"] || ENV["http_proxy"])
-			Net::HTTP.new(uri.host, uri.port, proxy.host, proxy.port, proxy.user, proxy.password)
-		else
-			Net::HTTP.new(uri.host, uri.port)
+			when RE_HTTPPROXY === @opts["httpproxy"]
+				Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
+			when ENV["HTTP_PROXY"], ENV["http_proxy"]
+				proxy = URI(ENV["HTTP_PROXY"] || ENV["http_proxy"])
+				Net::HTTP.new(uri.host, uri.port,
+				              proxy.host, proxy.port, proxy.user, proxy.password)
+			else
+				Net::HTTP.new(uri.host, uri.port)
 		end
 		http.open_timeout = 30 # nil by default
 		http.read_timeout = 30 # 60 by default
@@ -1067,7 +1126,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	rescue => e
 		@log.error e.inspect
 		log "An error occured while loading wedata.net."
-		@sources
+		@sources || [[api_source, "tig.rb"]]
 	end
 
 	def fetch_suffix_bl(r = [])
@@ -1116,7 +1175,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def hostname(user);    "#{user["protected"] ? "protected." : ""}#{api_base.host}"             end
+	def hostname(user)
+		hosts = [api_base.host]
+		hosts << "protected" if user["protected"]
+		hosts << "bot"       if @drones.include?(user["id"])
+		hosts.join("/")
+	end
+
 	def permalink(status); "#{api_base}#{status["user"]["screen_name"]}/statuses/#{status["id"]}" end
 	def source;            @sources[rand(@sources.size)].first                                    end
 	def user_agent;        "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"         end
