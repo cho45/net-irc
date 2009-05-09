@@ -891,10 +891,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			(now_friends - prv_friends).each do |join|
 				post join, JOIN, main_channel
 				params << join
-				if params.size == 3
-					post server_name, MODE, main_channel, "+vvv", *params
-					params = []
-				end
+				next if params.size < 3
+
+				post server_name, MODE, main_channel, "+vvv", *params
+				params = []
 			end
 			unless params.empty?
 				mode = "+#{"v" * params.size}"
@@ -1077,37 +1077,52 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def untinyurl(text)
 		text.gsub(%r{
-			http://
-			(?:
-			 (?: (preview\.)? tin | rub) yurl\.com
-			   | is\.gd | bit\.ly | ff\.im | twurl.nl | blip\.fm
-			)
-			/~?[0-9a-z=-]+
+			http:// (?:
+				bit\.ly | (?:(preview\.)? tin | rub) yurl\.com |
+				is\.gd | ff\.im | twurl.nl | blip\.fm | u\.nu
+			) /~?[0-9a-z=-]+ (\?)?
 		}ix) do |url|
 			uri = URI(url)
-			uri.host = uri.host.sub($1, "") if $1
-			req = Net::HTTP::Head.new uri.request_uri
-			req.add_field "User-Agent", user_agent
-			RE_HTTPPROXY.match(@opts["httpproxy"])
-			http = Net::HTTP.new uri.host, uri.port, $3, $4.to_i, $1, $2
-			http.open_timeout = 3
-			http.read_timeout = 2
-			begin
-				http.request(req) do |res|
-					if res.is_a?(Net::HTTPRedirection) and res.key?("Location")
-						url = res["Location"]
-					end
-				end
-			rescue Timeout::Error
-			end
-			url
+			uri.host  = uri.host.sub($1, "") if $1
+			uri.query = nil if $2
+			fetch_location_header(uri).to_s
 		end
+	end
+
+	def fetch_location_header(uri, limit = 3)
+		return uri if limit == 0
+		req = Net::HTTP::Head.new uri.request_uri
+		req.add_field "User-Agent", user_agent
+		RE_HTTPPROXY.match(@opts["httpproxy"])
+		http = Net::HTTP.new uri.host, uri.port, $3, $4.to_i, $1, $2
+		http.open_timeout = 3
+		http.read_timeout = 2
+		begin
+			http.request(req) do |res|
+				if res.is_a?(Net::HTTPRedirection) and res.key?("Location")
+					begin
+						location = URI(res["Location"])
+					rescue URI::InvalidURIError
+					end
+					unless location.is_a? URI::HTTP
+						begin
+							location = URI.join(uri.to_s, res["Location"])
+						rescue URI::InvalidURIError, URI::BadURIError
+							# FIXME
+						end
+					end
+					uri = fetch_location_header(location, limit - 1)
+				end
+			end
+		rescue Timeout::Error
+		end
+		uri
 	end
 
 	def decode_utf7(str)
 		begin
 			require "iconv"
-			str = str.sub(/\A.+ > |\A.+/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
+			str = str.sub(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
 			#FIXME str = "[utf7]: #{str}" if str =~ /[^a-z0-9\s]/i
 			str
 		rescue LoadError, Iconv::IllegalSequence
