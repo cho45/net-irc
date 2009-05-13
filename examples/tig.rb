@@ -46,7 +46,7 @@ because NAMES list can't send @ leading nick (it interpreted op.)
 
 Apply ID to each message for make favorites by CTCP ACTION.
 
-	/me fav ID [ID...]
+	/me fav [ID...]
 
 <color> and <bgcolor> can be
 
@@ -112,6 +112,7 @@ Force SSL for API.
 	/me fav [ID...]
 	/me unfav [ID...]
 	/me fav! [ID...]
+	/me fav NICK
 
 ### link (ln)
 
@@ -160,7 +161,7 @@ Ruby's by cho45
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" # json use this
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
@@ -466,11 +467,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					statuses.push @favorites.last
 				end
 			else
-				args.each do |tid|
-					if status = @tmap[tid]
+				args.each do |tid_or_nick|
+					case
+					when status = @tmap[tid_or_nick]
 						statuses.push status
+					when friend = @friends.find {|i| i["screen_name"].casecmp(tid_or_nick).zero? }
+						statuses.push friend["status"]
 					else
-						log "No such ID #{colored_tid(tid)}"
+						log "No such ID #{colored_tid(tid_or_nick)}"
 					end
 				end
 			end
@@ -1114,7 +1118,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					uri = fetch_location_header(location, limit - 1)
 				end
 			end
-		rescue Timeout::Error
+		rescue Timeout::Error, Net::HTTPBadResponse
 		end
 		uri
 	end
@@ -1197,9 +1201,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		hosts.join("/")
 	end
 
+	def user_agent
+		"#{self.class}/#{server_version} (#{File.basename(__FILE__)}; Net::IRC::Server) Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
+	end
+
 	def permalink(status); "#{api_base}#{status["user"]["screen_name"]}/statuses/#{status["id"]}" end
 	def source;            @sources[rand(@sources.size)].first                                    end
-	def user_agent;        "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"         end
 
 	RE_HTTPPROXY = /\A(?:([^:@]+)(?::([^@]+))?@)?([^:]+)(?::(\d+))?\z/
 
