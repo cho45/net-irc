@@ -1,6 +1,5 @@
 #!/usr/bin/env ruby
-# vim:fileencoding=utf-8:
-# -*- coding: utf-8 -*-
+# vim:fileencoding=UTF-8:
 =begin
 
 # tig.rb
@@ -326,7 +325,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return unless @opts["mentions"]
 
-		sleep 10
+		sleep 6
 		@check_mentions_thread = Thread.start do
 			loop do
 				begin
@@ -346,8 +345,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_disconnected
 		@check_friends_thread.kill  rescue nil
-		@check_mentions_thread.kill rescue nil
 		@check_timeline_thread.kill rescue nil
+		@check_mentions_thread.kill rescue nil
 		@im_thread.kill             rescue nil
 		@im.disconnect              rescue nil
 	end
@@ -474,7 +473,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					when friend = @friends.find {|i| i["screen_name"].casecmp(tid_or_nick).zero? }
 						statuses.push friend["status"]
 					else
-						log "No such ID #{colored_tid(tid_or_nick)}"
+						log "No such ID/NICK #{colored_tid(tid_or_nick)}"
 					end
 				end
 			end
@@ -774,7 +773,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	private
 	def check_timeline
 		q = { :count => "200" }
-		q[:since_id] = @timeline.last.to_s if @timeline.last
+		q[:since_id] = @timeline.last.to_s unless @timeline.empty?
 		api("statuses/friends_timeline", q).reverse_each do |status|
 			id = status["id"]
 			next if id.nil? or @timeline.include?(id)
@@ -785,9 +784,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			user = status.delete("user")
 			nick = user["screen_name"]
 
-			if @opts["tid"]
-				mesg << " " << colored_tid(tid)
-			end
+			mesg << " " << colored_tid(tid) if @opts["tid"]
 
 			@log.debug [id, nick, mesg]
 			if nick == @me["screen_name"] # 自分のときは TOPIC に
@@ -832,23 +829,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_mentions
-		time = @prev_time_m || Time.now
-		@prev_time_m = Time.now
-		api("statuses/mentions").reverse_each do |mention|
-			id = mention["id"]
+		return if @timeline.empty?
+		@prev_mention_id ||= @timeline.last
+		api("statuses/mentions", {
+			:count    => "200",
+			:since_id => @prev_mention_id.to_s
+		}).reverse_each do |mention|
+			id = @prev_mention_id = mention["id"]
 			next if id.nil? or @timeline.include?(id)
-
-			created_at = Time.parse(mention["created_at"]) rescue next
-			next if created_at < time
 
 			@timeline << id
 			user = mention["user"]
 			mesg = generate_status_message(mention)
 			tid  = @tmap.push(mention)
 
-			if @opts["tid"]
-				mesg << " " << colored_tid(tid)
-			end
+			mesg << " " << colored_tid(tid) if @opts["tid"]
 
 			@log.debug [id, user["screen_name"], mesg]
 			message(user, main_channel, mesg)
@@ -856,12 +851,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_direct_messages
-		time = @prev_time_d || Time.now
-		@prev_time_d = Time.now
-		api("direct_messages", { :since => time.httpdate }).reverse_each do |mesg|
+		q = { :count => "200" }
+		q[:since_id] = @prev_dm_id.to_s if @prev_dm_id
+		api("direct_messages", q).reverse_each do |mesg|
+			@prev_dm_id = mesg["id"]
+
+			time = Time.parse(mesg["created_at"]) rescue Time.now + 1
+
+			next if not q.key?(:since_id) and time < Time.now
+
 			user = mesg["sender"]
 			text = mesg["text"]
-			time = Time.parse(mesg["created_at"])
 			@log.debug [user["screen_name"], text, time].inspect
 			message(user, @nick, text)
 		end
@@ -993,28 +993,28 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api(path, q = {}, opt = {})
-		q["source"] ||= api_source
+		@etags ||= {}
 
-		path     = path.sub(%r{\A/+}, "")
-		uri      = api_base.dup
-		uri.port = 443 if @opts["secure"]
-		uri.path += path
-		if path != "users/username_available"
-			uri.path += ".json"
-		else
-			q.delete("source")
-		end
+		path      = path.sub(%r{\A/+}, "")
+		uri       = api_base.dup
+		uri.port  = 443 if @opts["secure"]
 		uri.query = q.inject([]) {|r,(k,v)| v ? r << "#{k}=#{URI.escape(v, /[^-.!~*'()\w]/n)}" : r }.join("&")
+		uri.path += path
+		uri.path += ".json" if path != "users/username_available"
+		@log.debug uri.inspect
+
 		req = case
 			when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
 			when require_post?(path)        then Net::HTTP::Post.new   uri.path
 			else                                 Net::HTTP::Get.new    uri.request_uri
 		end
+		req.add_field "User-Agent",      user_agent
+		req.add_field "Accept",          "application/json,*/*;q=0.1"
+		req.add_field "Accept-Charset",  "UTF-8,*"
+		#req.add_field "Accept-Language", @opts["lang"] # "en-us,en;q=0.9,ja;q=0.5"
+		req.add_field "If-None-Match",   @etags[path] if @etags[path]
+		req.basic_auth @real, @pass
 		req.body = uri.query if req.request_body_permitted?
-		req.add_field("User-Agent", user_agent)
-		req.add_field("If-Modified-Since", q["since"]) if q.key?("since")
-		req.basic_auth(@real, @pass)
-		@log.debug uri.inspect
 
 		http = case
 			when RE_HTTPPROXY === @opts["httpproxy"]
@@ -1033,25 +1033,36 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		ret = http.request req
 
-		if ret.key?("X-RateLimit-Limit")
-			hourly_limit = ret["X-RateLimit-Limit"].to_i
-			if @limit != hourly_limit
-				msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
-				log msg
-				@log.info msg
-				@limit = hourly_limit
-			end
+		hourly_limit = ret["X-RateLimit-Limit"].to_i
+		if not hourly_limit.zero? and @limit != hourly_limit
+			msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
+			log msg
+			@log.info msg
+			@limit = hourly_limit
 		end
+
+		@etags[path] = ret["ETag"]
 
 		case ret
 		when Net::HTTPOK # 200
-			JSON.parse ret.body
+			# Workaround for Twitter's bug: {"request":NULL, ...}
+			json = ret.body.sub(/"request"\s*:\s*NULL\s*(?=[,}])/) {|v| v.downcase }
+			res  = JSON.parse json
+			if res.is_a?(Hash) and res["error"] # and not res["response"]
+				if @error != res["error"]
+					@error = res["error"]
+					log @error
+				end
+				raise APIFailed, res["error"]
+			end
+			res
 		when Net::HTTPNotModified # 304
 			[]
 		when Net::HTTPBadRequest # 400: exceeded the rate limitation
 			if ret.key?("X-RateLimit-Reset")
-				s = Time.now - Time.at(ret["X-RateLimit-Reset"].to_i)
+				s = Time.at(ret["X-RateLimit-Reset"].to_i) - Time.now
 				log "#{(s / 60.0).ceil} min remaining."
+				#sleep s
 			end
 			raise APIFailed, "#{ret.code}: #{ret.message}"
 		when Net::HTTPUnauthorized # 401
@@ -1202,7 +1213,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def user_agent
-		"#{self.class}/#{server_version} (#{File.basename(__FILE__)}; Net::IRC::Server) Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
+		"#{self.class}/#{server_version} (#{File.basename(__FILE__)}; Net::IRC::Server)" <<
+		" Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
 	end
 
 	def permalink(status); "#{api_base}#{status["user"]["screen_name"]}/statuses/#{status["id"]}" end
