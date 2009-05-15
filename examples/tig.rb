@@ -157,9 +157,7 @@ Ruby's by cho45
 
 =end
 
-$LOAD_PATH << "lib"
-$LOAD_PATH << "../lib"
-
+$LOAD_PATH << "lib" << "../lib"
 $KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
@@ -174,7 +172,7 @@ require "pathname"
 require "cgi"
 require "json"
 
-module Net::IRC::Constants; RPL_WHOISBOT = '335' end
+module Net::IRC::Constants; RPL_WHOISBOT = "335" end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
 	def server_name
@@ -743,7 +741,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	#end
 
 	def on_topic(m)
-		channel  = m.params[0]
+		channel = m.params[0]
 		return unless channel.casecmp(main_channel).zero?
 
 		begin
@@ -894,7 +892,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			params = []
 			(now_friends - prv_friends).each do |join|
 				post join, JOIN, main_channel
-				params << join
+				params << join[/\A[^!]+/]
 				next if params.size < 3
 
 				post server_name, MODE, main_channel, "+vvv", *params
