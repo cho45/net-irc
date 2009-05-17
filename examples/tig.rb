@@ -5,7 +5,7 @@
 # tig.rb
 
 Ruby version of TwitterIrcGateway
-( http://www.misuzilla.org/dist/net/twitterircgateway/ )
+<http://www.misuzilla.org/dist/net/twitterircgateway/>
 
 ## Launch
 
@@ -19,12 +19,14 @@ If you want to help:
 
 Options specified by after IRC realname.
 
-Configuration example for Tiarra ( http://coderepos.org/share/wiki/Tiarra ).
+Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 
 	twitter {
 		host: localhost
 		port: 16668
-		name: username@example.com athack jabber=username@example.com:jabberpasswd tid ratio=32:1 mentions=6 maxlimit=70
+		name: username@example.com mentions secure tid
+		# for Jabber
+		#name: username@example.com jabber=username@example.com:jabberpasswd mentions secure
 		password: password on Twitter
 		in-encoding: utf8
 		out-encoding: utf8
@@ -83,6 +85,8 @@ Be careful for managing password.
 Use IM instead of any APIs (e.g. post)
 
 ### ratio=<timeline>:<friends>[:<mentions>]
+
+77:1[:12] by default. 47 seconds, an hour and 5 minutes.
 
 ### mentions[=<ratio>]
 
@@ -151,6 +155,10 @@ Force SSL for API.
 
 	/me bot NICK [NICK...]
 
+## Feed
+
+<http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb?limit=100&mode=stop_on_copy&format=rss>
+
 ## License
 
 Ruby's by cho45
@@ -180,7 +188,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def server_version
-		"0.0.0"
+		rev = %q$Revision$.split[1]
+		rev &&= "+r#{rev}"
+		"0.0.0#{rev}"
 	end
 
 	def main_channel
@@ -277,9 +287,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		@ratio = (@opts["ratio"] || "11:3").split(":")
+		@ratio = (@opts["ratio"] || "77:1").split(":")
 		@ratio = Struct.new(:timeline, :friends, :mentions).new(*@ratio)
-		@ratio[:mentions] = @opts["mentions"] == true ? 5 : @opts["mentions"]
+		@ratio[:mentions] ||= @opts["mentions"] == true ? 12 : @opts["mentions"]
 
 		@timeline = []
 		@check_friends_thread = Thread.start do
@@ -323,7 +333,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return unless @opts["mentions"]
 
-		sleep 6
+		sleep 3
 		@check_mentions_thread = Thread.start do
 			loop do
 				begin
@@ -489,7 +499,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				else
 					@favorites.delete_if {|i| i["id"] == res["id"] }
 				end
-				sleep 1
+				sleep 0.5
 			end
 		when "link", "ln"
 			args.each do |tid|
@@ -501,9 +511,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		when /\Aratios?\z/
 			unless args.empty?
-				if args.size < 2 or
-				   (@opts["mentions"] and args.size < 3)
-					log "/me ratios <timeline> <frends>[ <mentions>]"
+				args = args.first.split(":") if args.size == 1
+				if @opts["mentions"] and args.size < 3
+					log "/me ratios <timeline> <friends> <mentions>"
+					return
+				elsif args.size == 1
+					log "/me ratios <timeline> <friends>"
 					return
 				end
 				ratios = args.map {|ratio| ratio.to_f }
@@ -515,7 +528,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@ratio[:friends]  = ratios[1]
 				@ratio[:mentions] = ratios[2] if @opts["mentions"]
 			end
-			log "Intervals: " << @ratio.map {|ratio| interval ratio }.join(", ")
+			log "Intervals: " << @ratio.map {|ratio| interval(ratio).round }.join(", ")
 		when /\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/
 		# destroy, delete, del, remove, rm, miss, oops
 			statuses = []
@@ -540,7 +553,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@tmap.delete_if {|k, v| v["id"] == res["id"] }
 				b = status["id"] == @me["status"]["id"]
 				log "Destroyed: #{res["text"]}"
-				sleep 1
+				sleep 0.5
 			end
 			if b
 				@me = api("account/verify_credentials")
@@ -827,7 +840,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_mentions
-		return if @timeline.empty?
+		return if @timeline.size < 200
 		@prev_mention_id ||= @timeline.last
 		api("statuses/mentions", {
 			:count    => "200",
@@ -866,9 +879,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_friends
-		first = true unless @friends
-		athack = @opts["athack"]
-		@friends ||= []
+		first   = @friends.nil?
+		athack  = @opts["athack"]
 		friends = api("statuses/friends")
 		if first and not athack
 			names_list = friends.map do |i|
@@ -881,40 +893,36 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, names_list
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
-			prv_friends = @friends.map {|friend| generate_prefix friend, athack }
+			return if not first and friends.size.zero? # 304 ETag
+
+			prv_friends = (@friends || []).map {|friend| generate_prefix friend, athack }
 			now_friends = friends.map {|friend| generate_prefix friend, athack }
 
 			# Twitter API bug?
 			return if not first and (now_friends.length - prv_friends.length).abs > 10
 
 			(prv_friends - now_friends).each {|part| post part, PART, main_channel, "" }
-			sleep 1
 			params = []
 			(now_friends - prv_friends).each do |join|
 				post join, JOIN, main_channel
 				params << join[/\A[^!]+/]
 				next if params.size < 3
 
-				post server_name, MODE, main_channel, "+vvv", *params
+				post server_name, MODE, main_channel, "+#{"v" * params.size}", *params
 				params = []
 			end
-			unless params.empty?
-				mode = "+#{"v" * params.size}"
-				post server_name, MODE, main_channel, mode, *params
-			end
+			post server_name, MODE, main_channel, "+#{"v" * params.size}", *params unless params.empty?
 		end
 		@friends = friends
 	end
 
 	def interval(ratio)
-		ratio   = ratio.to_f
-		footing = @ratio.inject {|sum, i| sum.to_f + i.to_f }
-		limit   = (@limit * 0.9).round
-		max     = @opts["maxlimit"]
-		limit   = max if max and limit > max
-		i       = 3600 / (limit * ratio / footing).round
-		@log.debug "Interval: #{i} seconds"
-		i
+		i     = 3600.0       # an hour in seconds
+		limit = 0.9 * @limit # 90% of limit
+		max   = @opts["maxlimit"]
+		i *= @ratio.inject {|sum, i| sum.to_f + i.to_f }
+		i /= ratio.to_f
+		i /= (max and max < limit) ? max : limit
 	rescue => e
 		@log.error e.inspect
 		100
@@ -1001,19 +1009,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		uri.path += ".json" if path != "users/username_available"
 		@log.debug uri.inspect
 
-		req = case
-			when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
-			when require_post?(path)        then Net::HTTP::Post.new   uri.path
-			else                                 Net::HTTP::Get.new    uri.request_uri
-		end
-		req.add_field "User-Agent",      user_agent
-		req.add_field "Accept",          "application/json,*/*;q=0.1"
-		req.add_field "Accept-Charset",  "UTF-8,*"
-		#req.add_field "Accept-Language", @opts["lang"] # "en-us,en;q=0.9,ja;q=0.5"
-		req.add_field "If-None-Match",   @etags[path] if @etags[path]
-		req.basic_auth @real, @pass
-		req.body = uri.query if req.request_body_permitted?
-
 		http = case
 			when RE_HTTPPROXY === @opts["httpproxy"]
 				Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
@@ -1029,7 +1024,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		http.use_ssl      = !!@opts["secure"]
 		http.verify_mode  = OpenSSL::SSL::VERIFY_NONE if http.use_ssl?
 
+		req = case
+			when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
+			when require_post?(path)        then Net::HTTP::Post.new   uri.path
+			else                                 Net::HTTP::Get.new    uri.request_uri
+		end
+		req.add_field "User-Agent",      user_agent
+		req.add_field "Accept",          "application/json,*/*;q=0.1"
+		req.add_field "Accept-Charset",  "UTF-8,*"
+		#req.add_field "Accept-Language", @opts["lang"] # "en-us,en;q=0.9,ja;q=0.5"
+		req.add_field "If-None-Match",   @etags[path] if @etags[path]
+		req.basic_auth @real, @pass
+		req.body = uri.query if req.request_body_permitted?
+
 		ret = http.request req
+
+		@etags[path] = ret["ETag"]
 
 		hourly_limit = ret["X-RateLimit-Limit"].to_i
 		if not hourly_limit.zero? and @limit != hourly_limit
@@ -1038,8 +1048,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@log.info msg
 			@limit = hourly_limit
 		end
-
-		@etags[path] = ret["ETag"]
 
 		case ret
 		when Net::HTTPOK # 200
