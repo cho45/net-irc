@@ -4,7 +4,7 @@
 
 == Description
 
-IRC library. This is mostly conform to RFC1459 but partly not for convenience.
+IRC library. This is mostly conform to RFC 1459 but partly not for convenience.
 
 
 == Installation
@@ -44,49 +44,48 @@ So, be careful to use @channels instance variable and call super surely.
 
 === Server
 
-see example/lig.rb
+see example/tig.rb
 
 
 == IRC Gateways
 
 There are some gateways connecting to webservices.
 
-* Lingr
 * Twitter
 * Wassr
+* Hatena Haiku
+* Hatena Star
 
 If you want to run it, type following:
 
 	$ cd `ruby -rubygems -e 'print Gem.searcher.find("net/irc").full_gem_path+"/examples"'`
 
-Lingr:
-	$ sudo gem install pit # for configuration
-	$ ./lig.rb
-
 Twitter:
-	$ ./tig.rb
+	$ ./tig.rb -f >> /dev/null 2>&1
 
 Wassr:
 	$ ./wig.rb
 
 Run as daemon in default. If you want to help:
 
-	$ ./lig.rb --help
-	Usage: ./lig.rb [opts]
+	$ ./tig.rb --help
+	Usage: tig.rb [opts]
 	
 	
 	Options:
-	    -p, --port [PORT=16669]          listen port number
-	    -h, --host [HOST=localhost]      listen host
+	    -p, --port [PORT=16668]          port number to listen
+	    -h, --host [HOST=localhost]      host name or IP address to listen
 	    -l, --log LOG                    log file
-	    -a, --api_key API_KEY            Your api key on Lingr
 	        --debug                      Enable debug mode
+	    -f, --foreground                 run foreground
+	    -n [user name or email address]
+	        --name
 
 
 == Copyright
 
-This library is based on RICE ( http://arika.org/ruby/rice ) written by akira yamada.
+This library is based on RICE <http://arika.org/ruby/rice> written by akira yamada.
 
 Author::    cho45 <cho45@lowreal.net>
-Copyright:: Copyright (c) 2008 cho45
+Copyright:: Copyright (c) 2008-2009 cho45
 License::   Ruby's
