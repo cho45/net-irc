@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# vim:fileencoding=UTF-8:
 =begin
 
 
@@ -11,7 +12,7 @@ Ruby's by cho45
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" # json use this
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "json"

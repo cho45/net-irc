@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# vim:encoding=utf-8:
+# vim:fileencoding=UTF-8:
 =begin
 # hig.rb
 
@@ -90,7 +90,7 @@ Ruby's by cho45
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" # json use this
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
@@ -142,7 +142,6 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 		super
 		@channels   = {}
 		@user_agent = "#{self.class}/#{server_version} (hig.rb)"
-		@map        = nil
 		@counters   = {} # for jabber fav
 	end
 
@@ -639,20 +638,18 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TypableMap < Hash
-		Roma = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
-			case
-			when consonant.size > 1, consonant == "y"
-				%w|a u o|
-			when consonant == "q"
-				%w|a i e o|
-			else
-				%w|a i u e o|
+		Roman = %w[
+			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
+		].unshift("").map do |consonant|
+			case consonant
+			when "y", /\A.{2}/ then %w|a u o|
+			when "q"           then %w|a i e o|
+			else                    %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
-		}.flatten
+		end.flatten
 
-		def initialize(size=1)
-			@seq  = Roma
-			@map  = {}
+		def initialize(size = 1)
+			@seq  = Roman
 			@n    = 0
 			@size = size
 		end
@@ -670,7 +667,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 			id = generate(@n)
 			self[id] = obj
 			@n += 1
-			@n = @n % (@seq.size ** @size)
+			@n %= @seq.size ** @size
 			id
 		end
 		alias << push

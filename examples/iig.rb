@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# vim:fileencoding=UTF-8:
 =begin
 
 # iig.rb
@@ -22,7 +23,7 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 	identica {
 		host: localhost
 		port: 16672
-		name: username@example.com athack tid ratio=32:1 replies=6
+		name: username@example.com athack tid ratio=77:1:12 replies
 		password: password on Identi.ca
 		in-encoding: utf8
 		out-encoding: utf8
@@ -64,7 +65,6 @@ Apply ID to each message for make favorites by CTCP ACTION.
 	14 => grey
 	15 => lightgrey    silver
 
-
 ### jabber=<jid>:<pass>
 
 If `jabber=<jid>:<pass>` option specified,
@@ -89,61 +89,41 @@ Use IM instead of any APIs (e.g. post)
 
 ### checkrls=<interval seconds>
 
+## Feed
+
+<http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/iig.rb?limit=100&mode=stop_on_copy&format=rss>
+
 ## License
 
 Ruby's by cho45
 
 =end
 
-$LOAD_PATH << "lib"
-$LOAD_PATH << "../lib"
-
-$KCODE = "u" # json use this
+$LOAD_PATH << "lib" << "../lib"
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
 require "net/http"
 require "uri"
-require "json"
 require "socket"
 require "time"
 require "logger"
 require "yaml"
 require "pathname"
 require "cgi"
-
-Net::HTTP.version_1_2
+require "json"
 
 class IdenticaIrcGateway < Net::IRC::Server::Session
-	def server_name
-		"identicagw"
-	end
+	def server_name;    "identicagw"                 end
+	def server_version; "0.0.0"                      end
+	def main_channel;   "#Identi.ca"                 end
+	def api_base;       URI("http://identi.ca/api/") end
+	def api_source;     "iig.rb"                     end
+	def jabber_bot_id;  "update@identi.ca"           end
+	def hourly_limit;   100                          end
 
-	def server_version
-		"0.0.0"
-	end
-
-	def main_channel
-		"#Identi.ca"
-	end
-
-	def api_base
-		URI("http://identi.ca/api/")
-	end
-
-	def api_source
-		"iig.rb"
-	end
-
-	def jabber_bot_id
-		"update@identi.ca"
-	end
-
-	def hourly_limit
-		60
-	end
-
-	class ApiFailed < StandardError; end
+	class APIFailed < StandardError; end
 
 	def initialize(*args)
 		super
@@ -151,7 +131,6 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 		@channels   = [] # joined channels (groups)
 		@user_agent = "#{self.class}/#{server_version} (#{File.basename(__FILE__)})"
 		@config     = Pathname.new(ENV["HOME"]) + ".iig"
-		@map        = nil
 		load_config
 	end
 
@@ -201,7 +180,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					check_friends
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -221,7 +200,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 				begin
 					check_timeline
 					# check_direct_messages
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -240,7 +219,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					check_replies
-				rescue ApiFailed => e
+				rescue APIFailed => e
 					@log.error e.inspect
 				rescue Exception => e
 					@log.error e.inspect
@@ -254,11 +233,11 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill    rescue nil
-		@check_replies_thread.kill    rescue nil
-		@check_timeline_thread.kill   rescue nil
-		@im_thread.kill               rescue nil
-		@im.disconnect                rescue nil
+		@check_friends_thread.kill  rescue nil
+		@check_replies_thread.kill  rescue nil
+		@check_timeline_thread.kill rescue nil
+		@im_thread.kill             rescue nil
+		@im.disconnect              rescue nil
 	end
 
 	def on_privmsg(m)
@@ -278,7 +257,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 				# direct message
 				ret = api("direct_messages/new", {"user" => target, "text" => message})
 			end
-			raise ApiFailed, "API failed" unless ret
+			raise APIFailed, "API failed" unless ret
 			log "Status Updated"
 		rescue => e
 			@log.error [retry_count, e.inspect].inspect
@@ -363,7 +342,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			location = location.empty? ? "nowhere" : "in #{location}"
 			post server_name, NOTICE, main_channel, "You are #{location} now."
 		end
-	rescue ApiFailed => e
+	rescue APIFailed => e
 		log e.inspect
 	end
 
@@ -667,19 +646,19 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPOK # 200
 			ret = JSON.parse(ret.body.gsub(/'(y(?:es)?|no?|true|false|null)'/, '"\1"'))
 			if ret.kind_of?(Hash) && !opt[:avoid_error] && ret["error"]
-				raise ApiFailed, "Server Returned Error: #{ret["error"]}"
+				raise APIFailed, "Server Returned Error: #{ret["error"]}"
 			end
 			ret
 		when Net::HTTPNotModified # 304
 			[]
 		when Net::HTTPBadRequest # 400
 			# exceeded the rate limitation
-			raise ApiFailed, "#{ret.code}: #{ret.message}"
+			raise APIFailed, "#{ret.code}: #{ret.message}"
 		else
-			raise ApiFailed, "Server Returned #{ret.code} #{ret.message}"
+			raise APIFailed, "Server Returned #{ret.code} #{ret.message}"
 		end
 	rescue Errno::ETIMEDOUT, JSON::ParserError, IOError, Timeout::Error, Errno::ECONNRESET => e
-		raise ApiFailed, e.inspect
+		raise APIFailed, e.inspect
 	end
 
 	def message(sender, target, str)
@@ -692,7 +671,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	def log(str)
-		str.gsub!(/\r?\n|\r/, " ")
+		str.gsub!(/\r\n|[\r\n]/, " ")
 		post server_name, NOTICE, main_channel, str
 	end
 
@@ -712,20 +691,18 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TypableMap < Hash
-		Roman = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
-			case
-			when consonant.size > 1, consonant == "y"
-				%w|a u o|
-			when consonant == "q"
-				%w|a i e o|
-			else
-				%w|a i u e o|
+		Roman = %w[
+			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
+		].unshift("").map do |consonant|
+			case consonant
+			when "y", /\A.{2}/ then %w|a u o|
+			when "q"           then %w|a i e o|
+			else                    %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
-		}.flatten
+		end.flatten
 
 		def initialize(size = 1)
 			@seq  = Roman
-			@map  = {}
 			@n    = 0
 			@size = size
 		end
@@ -743,7 +720,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 			id = generate(@n)
 			self[id] = obj
 			@n += 1
-			@n = @n % (@seq.size ** @size)
+			@n %= @seq.size ** @size
 			id
 		end
 		alias << push
@@ -814,27 +791,27 @@ if __FILE__ == $0
 	opts[:logger] = Logger.new(opts[:log], "daily")
 	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 
-#	def daemonize(foreground = false)
-#		trap("SIGINT")  { exit! 0 }
-#		trap("SIGTERM") { exit! 0 }
-#		trap("SIGHUP")  { exit! 0 }
-#		return yield if $DEBUG || foreground
-#		Process.fork do
-#			Process.setsid
-#			Dir.chdir "/"
-#			File.open("/dev/null") {|f|
-#				STDIN.reopen  f
-#				STDOUT.reopen f
-#				STDERR.reopen f
-#			}
-#			yield
-#		end
-#		exit! 0
-#	end
+	#def daemonize(foreground = false)
+	#	trap("SIGINT")  { exit! 0 }
+	#	trap("SIGTERM") { exit! 0 }
+	#	trap("SIGHUP")  { exit! 0 }
+	#	return yield if $DEBUG || foreground
+	#	Process.fork do
+	#		Process.setsid
+	#		Dir.chdir "/"
+	#		File.open("/dev/null") {|f|
+	#			STDIN.reopen  f
+	#			STDOUT.reopen f
+	#			STDERR.reopen f
+	#		}
+	#		yield
+	#	end
+	#	exit! 0
+	#end
 
-#	daemonize(opts[:debug] || opts[:foreground]) do
+	#daemonize(opts[:debug] || opts[:foreground]) do
 		Net::IRC::Server.new(opts[:host], opts[:port], IdenticaIrcGateway, opts).start
-#	end
+	#end
 end
 
 # Local Variables:

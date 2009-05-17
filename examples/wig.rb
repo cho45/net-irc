@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# -*- coding: UTF-8 -*-
+# vim:fileencoding=UTF-8:
 =begin
 
 # wig.rb
@@ -93,7 +93,7 @@ Ruby's by cho45
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" # json use this
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
@@ -145,7 +145,6 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		super
 		@channels   = {}
 		@user_agent = "#{self.class}/#{server_version} (wig.rb)"
-		@map        = nil
 		@counters   = {} # for jabber fav
 	end
 
@@ -182,7 +181,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		@ratio  = Struct.new(:timeline, :friends, :channel).new(*(@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_f })
+		@ratio   = Struct.new(:timeline, :friends, :channel).new(*(@opts["ratio"] || "10:3:5").split(":").map {|ratio| ratio.to_f })
 		@footing = @ratio.inject {|r,i| r + i }
 
 		@timeline = []
@@ -317,8 +316,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			end
 		when "fav"
 			target = args[0]
-			st  = @tmap[target]
-			id  = rid_for(target)
+			st     = @tmap[target]
+			id     = rid_for(target)
 			if st || id
 				unless id
 					if @im && @im.connected?
@@ -485,8 +484,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 
 		begin
 			require 'iconv'
-			mesg    = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
-			mesg    = "[utf7]: #{mesg}" if body =~ /[^a-z0-9\s]/i
+			mesg = mesg.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+			mesg = "[utf7]: #{mesg}" if mesg =~ /[^a-z0-9\s]/i
 		rescue LoadError
 		rescue Iconv::IllegalSequence
 		end
@@ -578,8 +577,8 @@ class WassrIrcGateway < Net::IRC::Server::Session
 								body = CGI.unescapeHTML(body)
 								begin
 									require 'iconv'
-									body    = body.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
-									body    = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
+									body = body.sub(/^.+ > |^.+/) {|str| Iconv.iconv("UTF-8", "UTF-7", str).join }
+									body = "[utf7]: #{body}" if body =~ /[^a-z0-9\s]/i
 								rescue LoadError
 								rescue Iconv::IllegalSequence
 								end
@@ -703,20 +702,18 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TypableMap < Hash
-		Roma = %w|k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q|.unshift("").map {|consonant|
-			case
-			when consonant.size > 1, consonant == "y"
-				%w|a u o|
-			when consonant == "q"
-				%w|a i e o|
-			else
-				%w|a i u e o|
+		Roman = %w[
+			k g ky gy s z sh j t d ch n ny h b p hy by py m my y r ry w v q
+		].unshift("").map do |consonant|
+			case consonant
+			when "y", /\A.{2}/ then %w|a u o|
+			when "q"           then %w|a i e o|
+			else                    %w|a i u e o|
 			end.map {|vowel| "#{consonant}#{vowel}" }
-		}.flatten
+		end.flatten
 
-		def initialize(size=1)
-			@seq  = Roma
-			@map  = {}
+		def initialize(size = 1)
+			@seq  = Roman
 			@n    = 0
 			@size = size
 		end
@@ -734,7 +731,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			id = generate(@n)
 			self[id] = obj
 			@n += 1
-			@n = @n % (@seq.size ** @size)
+			@n %= @seq.size ** @size
 			id
 		end
 		alias << push
