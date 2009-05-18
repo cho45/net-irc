@@ -79,6 +79,7 @@ class Net::IRC::Server
 
 		def initialize(server, socket, logger, opts={})
 			@server, @socket, @log, @opts = server, socket, logger, opts
+			@prefix = nil
 		end
 
 		def self.start(*args)

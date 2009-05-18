@@ -105,8 +105,8 @@ module Net::IRC::Client::ChannelManager
 				info[:users].map! {|i|
 					(i == oldnick) ? newnick : i
 				}
-				info[:modes].map! {|m, target|
-					(target == oldnick) ? [m, newnick] : [m, target]
+				info[:modes].map! {|mode, target|
+					(target == oldnick) ? [mode, newnick] : [mode, target]
 				}
 			end
 		end
@@ -118,17 +118,17 @@ module Net::IRC::Client::ChannelManager
 		@channels.synchronize do
 			init_channel(channel)
 
-			mode = @server_config.mode_parser.parse(m)
-			mode[:negative].each do |m|
-				@channels[channel][:modes].delete(m)
+			modes = @server_config.mode_parser.parse(m)
+			modes[:negative].each do |mode|
+				@channels[channel][:modes].delete(mode)
 			end
 
-			mode[:positive].each do |m|
-				@channels[channel][:modes] << m
+			modes[:positive].each do |mode|
+				@channels[channel][:modes] << mode
 			end
 
 			@channels[channel][:modes].uniq!
-			[mode[:negative], mode[:positive]]
+			[modes[:negative], modes[:positive]]
 		end
 	end
 
