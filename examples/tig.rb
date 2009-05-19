@@ -317,8 +317,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@sources   = @opts["clientspoofing"] ? fetch_sources : [[api_source, "tig.rb"]]
 		@suffix_bl = fetch_suffix_bl
 
-		sleep 3
 		@check_timeline_thread = Thread.start do
+			sleep 3
+
 			loop do
 				begin
 					check_timeline
@@ -337,8 +338,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return unless @opts["mentions"]
 
-		sleep 3
 		@check_mentions_thread = Thread.start do
+			sleep interval(@ratio[:timeline]) / 2
+
 			loop do
 				begin
 					check_mentions
@@ -443,10 +445,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
 			end
-			@log.debug [nick, mesg]
 			to = nick == @nick ? server_name : nick
 			res = api("statuses/user_timeline/#{nick}", { :count => count }).reverse_each do |s|
-				@log.debug s
 				time = Time.parse(s["created_at"]) rescue Time.now
 				post to, NOTICE, main_channel,
 				     "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
@@ -655,7 +655,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			desc = user["name"]
 			desc << " / #{user["description"]}".gsub(/\s+/, " ") unless user["description"].empty?
 			idle = (Time.now - Time.parse(user["status"]["created_at"])).to_i rescue 0
-			sion = Time.parse(user["created_at"]).to_i rescue 0
+			sion = Time.parse(user["created_at"]).to_i                        rescue 0
 			post server_name, RPL_WHOISUSER,   @nick, nick, "id=%09d" % user["id"], host, "*", desc
 			post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, "SoMa neighborhood of San Francisco, CA"
 			post server_name, RPL_WHOISIDLE,   @nick, nick, "#{idle}", "#{sion}", "seconds idle, signon time"
@@ -774,7 +774,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			status.delete("user")
 			@me.update("status" => status)
 
-			if distance < 0.2
+			if distance < 0.5
 				deleted = api("statuses/destroy/#{previous["id"]}")
 				@tmap.delete_if {|k, v| v["id"] == deleted["id"] }
 				log "Fixed: #{status["text"]}"
@@ -804,12 +804,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@log.debug [id, nick, mesg]
 			if nick == @me["screen_name"] # 自分のときは TOPIC に
 				post @prefix, TOPIC, main_channel, mesg
+
+				@me.update("status" => status)
 			else
 				message(user, main_channel, mesg)
-				uid = user["id"]
-				@friends.each do |i|
-					if i["id"] == uid
-						i.update("status" => status)
+
+				@friends.each do |friend|
+					if friend["id"] == user["id"]
+						friend.update("status" => status)
 						break
 					end
 				end
@@ -844,10 +846,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_mentions
-		return if @timeline.size < 200
-		@prev_mention_id ||= @timeline.last
+		return if @timeline.empty?
+		@prev_mention_id ||= @timeline.first
 		api("statuses/mentions", {
-			:count    => "200",
+			:count    => 200,
 			:since_id => @prev_mention_id
 		}).reverse_each do |mention|
 			id = @prev_mention_id = mention["id"]
@@ -860,24 +862,26 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			mesg << " " << colored_tid(tid) if @opts["tid"]
 
-			@log.debug [id, user["screen_name"], mesg]
+			@log.debug [id, user["screen_name"], mesg].inspect
 			message(user, main_channel, mesg)
+
+			@friends.each do |friend|
+				if friend["id"] == user["id"]
+					friend.update("status" => status)
+					break
+				end
+			end
 		end
 	end
 
 	def check_direct_messages
-		q = { :count => 200 }
-		q[:since_id] = @prev_dm_id if @prev_dm_id
-		api("direct_messages", q).reverse_each do |mesg|
-			@prev_dm_id = mesg["id"]
-
-			time = Time.parse(mesg["created_at"]) rescue Time.now + 1
-
-			next if not q.key?(:since_id) and time < Time.now
-
+		api("direct_messages",
+		    @prev_dm_id ? { :count => 200, :since_id => @prev_dm_id } \
+		                : { :count => 1 }).reverse_each do |mesg|
+			id   = @prev_dm_id = mesg["id"]
 			user = mesg["sender"]
 			text = mesg["text"]
-			@log.debug [user["screen_name"], text, time].inspect
+			@log.debug [id, user["screen_name"], text].inspect
 			message(user, @nick, text)
 		end
 	end
@@ -1055,8 +1059,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		case ret
 		when Net::HTTPOK # 200
-			# Workaround for Twitter's bug: {"request":NULL, ...}
-			json = ret.body.sub(/"request"\s*:\s*NULL\s*(?=[,}])/) {|v| v.downcase }
+			# Workaround for Twitter's bugs
+			json = ret.body.strip
+			json = json.sub(/"request"\s*:\s*NULL\s*(?=[,}])/) {|m| m.downcase }
+			json = json.sub(/\A(?:false|true)\z/) {|m| "[#{m}]" }
+
 			res  = JSON.parse json
 			if res.is_a?(Hash) and res["error"] # and not res["response"]
 				if @error != res["error"]
@@ -1090,7 +1097,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#	[$1 ? $2.hex : $2.to_i].pack("U")
 		#end
 		screen_name = sender["screen_name"]
-		sender["screen_name"] = @nicknames[screen_name] || screen_name
+		sender.update("screen_name" => @nicknames[screen_name] || screen_name)
 		prefix = generate_prefix(sender)
 		post prefix, PRIVMSG, target, str
 	end
@@ -1181,6 +1188,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def http_get(uri)
 		accepts = ["*/*;q=0.1"]
+		#require 'mime/types'; accepts.unshift MIME::Types.of(uri.path).first.simplified
 		types   = { "json" => "application/json", "txt" => "text/plain" }
 		ext     = uri.path[/[^.]+\z/]
 		accepts.unshift types[ext] if types.key?(ext)
