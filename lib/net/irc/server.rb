@@ -79,7 +79,6 @@ class Net::IRC::Server
 
 		def initialize(server, socket, logger, opts={})
 			@server, @socket, @log, @opts = server, socket, logger, opts
-			@prefix = nil
 		end
 
 		def self.start(*args)
@@ -127,7 +126,7 @@ class Net::IRC::Server
 		# Set @nick.
 		def on_nick(m)
 			@nick = m.params[0]
-			@prefix &&= Prefix.new("#{@nick}!#{@user}@#{@host}")
+			@prefix = Prefix.new("#{@nick}!#{@user}@#{@host}") if defined? @prefix
 		end
 
 		# Default USER callback.

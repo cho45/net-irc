@@ -170,14 +170,13 @@ $KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
-require "net/https"
+require "net/http"
 require "uri"
 require "socket"
 require "time"
 require "logger"
 require "yaml"
 require "pathname"
-require "cgi"
 require "json"
 
 module Net::IRC::Constants; RPL_WHOISBOT = "335" end
@@ -239,7 +238,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@real, *@opts = (@opts.name || @real).split(/\s+/)
 		@opts = @opts.inject({}) do |r, i|
-			key, value = i.split("=")
+			key, value = i.split("=", 2)
 			key = "mentions" if key == "replies" # backcompat
 			r.update key => case value
 				when nil                      then true
@@ -294,7 +293,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@ratio = (@opts["ratio"] || "77:1").split(":")
 		@ratio = Struct.new(:timeline, :friends, :mentions).new(*@ratio)
-		@ratio[:mentions] ||= @opts["mentions"] == true ? 12 : @opts["mentions"]
+		@ratio.mentions ||= @opts["mentions"] == true ? 12 : @opts["mentions"]
 
 		@check_friends_thread = Thread.start do
 			loop do
@@ -308,7 +307,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep interval(@ratio[:friends])
+				sleep interval(@ratio.friends)
 			end
 		end
 
@@ -332,14 +331,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep interval(@ratio[:timeline])
+				sleep interval(@ratio.timeline)
 			end
 		end
 
 		return unless @opts["mentions"]
 
 		@check_mentions_thread = Thread.start do
-			sleep interval(@ratio[:timeline]) / 2
+			sleep interval(@ratio.timeline) / 2
 
 			loop do
 				begin
@@ -352,7 +351,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep interval(@ratio[:mentions])
+				sleep interval(@ratio.mentions)
 			end
 		end
 	end
@@ -528,9 +527,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					log "Ratios must be greater than 0.0 and fractional values are permitted."
 					return
 				end
-				@ratio[:timeline] = ratios[0]
-				@ratio[:friends]  = ratios[1]
-				@ratio[:mentions] = ratios[2] if @opts["mentions"]
+				@ratio.timeline = ratios[0]
+				@ratio.friends  = ratios[1]
+				@ratio.mentions = ratios[2] if @opts["mentions"]
 			end
 			log "Intervals: " << @ratio.map {|ratio| interval(ratio).round }.join(", ")
 		when /\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/
@@ -889,16 +888,30 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_friends
 		first   = @friends.nil?
 		athack  = @opts["athack"]
-		friends = api("statuses/friends")
+		friends = []
+
+		1.upto(1) do |page|
+			friends += api("statuses/friends", { :page => page })
+			c ||= friends.size
+			break if c * page >= @me["friends_count"]
+			#sleep 0.5
+		end
+
 		if first and not athack
-			names_list = friends.map do |i|
+			rest = friends.map do |i|
 				name   = i["screen_name"]
-				#prefix = @drones.include?(i["id"]) ? "%" : "+" # FIXME
+				#prefix = @drones.include?(i["id"]) ? "%" : "+" # FIXME ~&%
 				prefix = "+"
 				"#{prefix}#{name}"
+			end.reverse.inject("@#{@nick}") do |r, nick|
+				if r.size < 400
+					r << " " << nick
+				else
+					post server_name, RPL_NAMREPLY, @nick, "=", main_channel, r
+					nick
+				end
 			end
-			names_list = names_list.push("@#{@nick}").reverse.join(" ")
-			post server_name, RPL_NAMREPLY,   @nick, "=", main_channel, names_list
+			post server_name, RPL_NAMREPLY, @nick, "=", main_channel, rest
 			post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 		else
 			return if not first and friends.size.zero? # 304 ETag
@@ -943,6 +956,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@im_thread = Thread.start do
 			loop do
 				begin
+					require "cgi"
 					@im.received_messages.each do |msg|
 						@log.debug [msg.from, msg.body]
 						if msg.from.strip == jabber_bot_id
@@ -1014,6 +1028,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		uri.path += path
 		uri.path += ".json" if path != "users/username_available"
 		@log.debug uri.inspect
+
+		require "net/https" if @opts["secure"]
 
 		http = case
 			when RE_HTTPPROXY === @opts["httpproxy"]
@@ -1122,7 +1138,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def fetch_location_header(uri, limit = 3)
-		return uri if limit == 0 or uri.nil?
+		return uri if limit == 0 or uri.nil? or uri.is_a? URI::HTTPS
 		req = Net::HTTP::Head.new uri.request_uri
 		req.add_field "User-Agent", user_agent
 		RE_HTTPPROXY.match(@opts["httpproxy"])
@@ -1188,7 +1204,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def http_get(uri)
 		accepts = ["*/*;q=0.1"]
-		#require 'mime/types'; accepts.unshift MIME::Types.of(uri.path).first.simplified
+		#require "mime/types"; accepts.unshift MIME::Types.of(uri.path).first.simplified
 		types   = { "json" => "application/json", "txt" => "text/plain" }
 		ext     = uri.path[/[^.]+\z/]
 		accepts.unshift types[ext] if types.key?(ext)
