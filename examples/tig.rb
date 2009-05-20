@@ -1043,7 +1043,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		http.open_timeout = 30 # nil by default
 		http.read_timeout = 30 # 60 by default
-		http.use_ssl      = !!@opts["secure"]
+		http.use_ssl      = !!@opts["secure"] if @opts["secure"]
 		http.verify_mode  = OpenSSL::SSL::VERIFY_NONE if http.use_ssl?
 
 		req = case
