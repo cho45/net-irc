@@ -177,6 +177,7 @@ require "time"
 require "logger"
 require "yaml"
 require "pathname"
+require "ostruct"
 require "json"
 
 module Net::IRC::Constants; RPL_WHOISBOT = "335" end
@@ -193,7 +194,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def main_channel
-		@opts["main_channel"] || "#twitter"
+		@opts.main_channel || "#twitter"
 	end
 
 	def api_base
@@ -201,7 +202,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api_source
-		"#{@opts["api_source"] || "tigrb"}"
+		"#{@opts.api_source || "tigrb"}"
 	end
 
 	def jabber_bot_id
@@ -223,7 +224,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@drones    = []
 		@config    = Pathname.new(ENV["HOME"]) + ".tig"
 		@suffix_bl = []
-		@etags     = {}
+		#@etags     = {}
 		@limit     = hourly_limit
 		@tmap      = TypableMap.new
 		@friends   =
@@ -247,6 +248,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				else                               value
 			end
 		end
+		@opts = OpenStruct.new(@opts)
 
 		retry_count = 0
 		begin
@@ -270,9 +272,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post server_name, MODE, main_channel, "+mto", @prefix.nick
 		post @prefix, TOPIC, main_channel, generate_status_message(@me["status"])
 
-		if @opts["jabber"]
-			jid, pass = @opts["jabber"].split(":", 2)
-			@opts["jabber"].replace("jabber=#{jid}:********")
+		if @opts.jabber
+			jid, pass = @opts.jabber.split(":", 2)
+			@opts.jabber.replace("jabber=#{jid}:********")
 			if jabber_bot_id
 				begin
 					require "xmpp4r-simple"
@@ -291,9 +293,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log "Client Options: #{@opts.inspect}"
 		@log.info "Client Options: #{@opts.inspect}"
 
-		@ratio = (@opts["ratio"] || "77:1").split(":")
+		@ratio = (@opts.ratio || "77:1").split(":")
 		@ratio = Struct.new(:timeline, :friends, :mentions).new(*@ratio)
-		@ratio.mentions ||= @opts["mentions"] == true ? 12 : @opts["mentions"]
+		@ratio.mentions ||= @opts.mentions == true ? 12 : @opts.mentions
 
 		@check_friends_thread = Thread.start do
 			loop do
@@ -311,9 +313,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
-		return if @opts["jabber"]
+		return if @opts.jabber
 
-		@sources   = @opts["clientspoofing"] ? fetch_sources : [[api_source, "tig.rb"]]
+		@sources   = @opts.clientspoofing ? fetch_sources : [[api_source, "tig.rb"]]
 		@suffix_bl = fetch_suffix_bl
 
 		@check_timeline_thread = Thread.start do
@@ -335,7 +337,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
-		return unless @opts["mentions"]
+		return unless @opts.mentions
 
 		@check_mentions_thread = Thread.start do
 			sleep interval(@ratio.timeline) / 2
@@ -378,7 +380,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		begin
 			if target =~ /\A#/
-				if @opts["alwaysim"] and @im and @im.connected? # in jabber mode, using jabber post
+				if @opts.alwaysim and @im and @im.connected? # in jabber mode, using jabber post
 					ret = @im.deliver(jabber_bot_id, mesg)
 					post @prefix, TOPIC, main_channel, mesg
 				else
@@ -515,7 +517,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when /\Aratios?\z/
 			unless args.empty?
 				args = args.first.split(":") if args.size == 1
-				if @opts["mentions"] and args.size < 3
+				if @opts.mentions and args.size < 3
 					log "/me ratios <timeline> <friends> <mentions>"
 					return
 				elsif args.size == 1
@@ -529,7 +531,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 				@ratio.timeline = ratios[0]
 				@ratio.friends  = ratios[1]
-				@ratio.mentions = ratios[2] if @opts["mentions"]
+				@ratio.mentions = ratios[2] if @opts.mentions
 			end
 			log "Intervals: " << @ratio.map {|ratio| interval(ratio).round }.join(", ")
 		when /\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/
@@ -550,7 +552,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 			end
-			b = false
+			#b = false
 			statuses.each do |status|
 				res = api("statuses/destroy/#{status["id"]}")
 				@tmap.delete_if {|k, v| v["id"] == res["id"] }
@@ -558,10 +560,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Destroyed: #{res["text"]}"
 				sleep 0.5
 			end
-			if b
-				@me = api("account/verify_credentials")
-				post @prefix, TOPIC, main_channel, generate_status_message(@me["status"])
-			end
+			#if b
+			#	@me = api("account/verify_credentials")
+			#	post @prefix, TOPIC, main_channel, generate_status_message(@me["status"])
+			#end
 		when "name"
 			name = mesg.split(/\s+/, 3)[2]
 			unless name.nil?
@@ -798,7 +800,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			user = status.delete("user")
 			nick = user["screen_name"]
 
-			mesg << " " << colored_tid(tid) if @opts["tid"]
+			mesg << " " << colored_tid(tid) if @opts.tid
 
 			@log.debug [id, nick, mesg]
 			if nick == @me["screen_name"] # 自分のときは TOPIC に
@@ -859,7 +861,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = generate_status_message(mention)
 			tid  = @tmap.push(mention)
 
-			mesg << " " << colored_tid(tid) if @opts["tid"]
+			mesg << " " << colored_tid(tid) if @opts.tid
 
 			@log.debug [id, user["screen_name"], mesg].inspect
 			message(user, main_channel, mesg)
@@ -887,11 +889,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_friends
 		first   = @friends.nil?
-		athack  = @opts["athack"]
+		athack  = @opts.athack
 		friends = []
 
 		1.upto(1) do |page|
-			friends += api("statuses/friends", { :page => page })
+			friends.concat api("statuses/friends", { :page => page })
 			c ||= friends.size
 			break if c * page >= @me["friends_count"]
 			#sleep 0.5
@@ -899,10 +901,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		if first and not athack
 			rest = friends.map do |i|
-				name   = i["screen_name"]
-				#prefix = @drones.include?(i["id"]) ? "%" : "+" # FIXME ~&%
-				prefix = "+"
-				"#{prefix}#{name}"
+				prefix = "+" #@drones.include?(i["id"]) ? "%" : "+" # FIXME ~&%
+				"#{prefix}#{i["screen_name"]}"
 			end.reverse.inject("@#{@nick}") do |r, nick|
 				if r.size < 400
 					r << " " << nick
@@ -940,7 +940,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def interval(ratio)
 		i     = 3600.0       # an hour in seconds
 		limit = 0.9 * @limit # 90% of limit
-		max   = @opts["maxlimit"]
+		max   = @opts.maxlimit
 		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f }
 		i /= ratio.to_f
 		i /= (max and max < limit) ? max : limit
@@ -1021,18 +1021,26 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api(path, q = {}, opt = {})
-		path      = path.sub(%r{\A/+}, "")
-		uri       = api_base.dup
-		uri.port  = 443 if @opts["secure"]
-		uri.query = q.inject([]) {|r,(k,v)| v.nil? ? r : r << "#{k}=#{URI.escape(v.to_s, /[^-.!~*'()A-Za-z0-9_]/)}" }.join("&")
+		path = path.sub(%r{\A/+}, "")
+		q    = q.inject([]) do |r,(k,v)|
+			r << "#{k}=#{URI.escape(v.to_s, /[^-.!~*'()A-Za-z0-9_]/)}" unless v.nil?
+			r
+		end.join("&")
+
+		uri = api_base.dup
+		if @opts.secure
+			uri.scheme = "https"
+			uri = URI(uri.to_s)
+		end
 		uri.path += path
 		uri.path += ".json" if path != "users/username_available"
+		uri.query = q unless q.empty?
 		@log.debug uri.inspect
 
-		require "net/https" if @opts["secure"]
+		require "net/https" if uri.is_a? URI::HTTPS
 
 		http = case
-			when RE_HTTPPROXY === @opts["httpproxy"]
+			when RE_HTTPPROXY === @opts.httpproxy
 				Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
 			when ENV["HTTP_PROXY"], ENV["http_proxy"]
 				proxy = URI(ENV["HTTP_PROXY"] || ENV["http_proxy"])
@@ -1043,8 +1051,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		http.open_timeout = 30 # nil by default
 		http.read_timeout = 30 # 60 by default
-		http.use_ssl      = !!@opts["secure"] if @opts["secure"]
-		http.verify_mode  = OpenSSL::SSL::VERIFY_NONE if http.use_ssl?
+		if uri.is_a? URI::HTTPS
+			http.use_ssl     = true
+			http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+		end
 
 		req = case
 			when path.include?("/destroy/") then Net::HTTP::Delete.new uri.request_uri
@@ -1054,8 +1064,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		req.basic_auth @real, @pass
 		req.add_field "User-Agent",      user_agent
 		req.add_field "Accept",          "application/json,*/*;q=0.1"
-		#req.add_field "Accept-Language", @opts["lang"] # "en-us,en;q=0.9,ja;q=0.5"
-		req.add_field "If-None-Match",   @etags[path] if @etags[path]
+		#req.add_field "Accept-Language", @opts.lang # "en-us,en;q=0.9,ja;q=0.5"
+		#req.add_field "If-None-Match",   @etags[path] if @etags[path]
 		if req.request_body_permitted?
 			req.add_field "Content-Type", "application/x-www-form-urlencoded"
 			req.body = uri.query
@@ -1063,7 +1073,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		ret = http.request req
 
-		@etags[path] = ret["ETag"]
+		#@etags[path] = ret["ETag"]
 
 		hourly_limit = ret["X-RateLimit-Limit"].to_i
 		if not hourly_limit.zero? and @limit != hourly_limit
@@ -1075,12 +1085,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		case ret
 		when Net::HTTPOK # 200
-			# Workaround for Twitter's bugs
+			# Avoid Twitter's invalid JSON
 			json = ret.body.strip
 			json = json.sub(/"request"\s*:\s*NULL\s*(?=[,}])/) {|m| m.downcase }
 			json = json.sub(/\A(?:false|true)\z/) {|m| "[#{m}]" }
 
-			res  = JSON.parse json
+			res = JSON.parse json
 			if res.is_a?(Hash) and res["error"] # and not res["response"]
 				if @error != res["error"]
 					@error = res["error"]
@@ -1127,7 +1137,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		text.gsub(%r{
 			http:// (?:
 				bit\.ly | (?:(preview\.)? tin | rub) yurl\.com |
-				is\.gd | ff\.im | twurl.nl | blip\.fm | u\.nu
+				is\.gd | ff\.im | twurl.nl | blip\.fm | u\.nu | bkite\.com
 			) /~?[0-9a-z=-]+ (\?)?
 		}ix) do |url|
 			uri = URI(url)
@@ -1141,7 +1151,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		return uri if limit == 0 or uri.nil? or uri.is_a? URI::HTTPS
 		req = Net::HTTP::Head.new uri.request_uri
 		req.add_field "User-Agent", user_agent
-		RE_HTTPPROXY.match(@opts["httpproxy"])
+		RE_HTTPPROXY.match(@opts.httpproxy)
 		http = Net::HTTP.new uri.host, uri.port, $3, $4.to_i, $1, $2
 		http.open_timeout = 3
 		http.read_timeout = 2
@@ -1214,7 +1224,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		req.add_field "Accept",         accepts.join(",")
 		req.add_field "Accept-Charset", "UTF-8,*;q=0.0" if ext != "json"
 		#req.add_field "If-None-Match",  @etags[uri.to_s] if @etags[uri.to_s]
-		RE_HTTPPROXY.match(@opts["httpproxy"])
+		RE_HTTPPROXY.match(@opts.httpproxy)
 		http = Net::HTTP.new(uri.host, uri.port, $3, $4.to_i, $1, $2)
 		http.open_timeout = 5
 		http.read_timeout = 10
@@ -1233,7 +1243,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def colored_tid(tid)
-		c = @opts["tid"] # expect: 0..15, true, "0,1"
+		c = @opts.tid # expect: 0..15, true, "0,1"
 		b = nil
 		if c.is_a?(String) and c.include?(",")
 			c, b = c.split(",", 2)
