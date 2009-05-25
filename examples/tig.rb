@@ -94,7 +94,7 @@ Use IM instead of any APIs (e.g. post)
 
 ### ratio=<timeline>[:<dm>[:<mentions>]]
 
-78[:12] by default. 46 seconds and 5 minutes.
+13[:2] by default. 46 seconds and 5 minutes.
 
 ### dm[=<ratio>]
 
@@ -306,10 +306,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log "Client options: #{@opts.marshal_dump.inspect}"
 		@log.info "Client options: #{@opts.inspect}"
 
-		@ratio = (@opts.ratio || "78").split(":")
+		@ratio = (@opts.ratio || "13").split(":")
 		@ratio = Struct.new(:timeline, :dm, :mentions).new(*@ratio)
-		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ? 6 : 12 : @opts.dm
-		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 6 : 12 : @opts.mentions
+		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ? 1 : 2 : @opts.dm
+		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 1 : 2 : @opts.mentions
 
 		@check_friends_thread = Thread.start do
 			loop do
@@ -940,10 +940,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_friends
-		@limit_remaining_for_ip ||= nil
-		limit = 0.9 * (@limit_remaining_for_ip || 2)
 		if @friends.nil?
-			@friends = page("statuses/friends/#{@me["screen_name"]}", @me["friends_count"], limit)
+			@friends = page("statuses/friends/#{@me["screen_name"]}", @me["friends_count"])
 			if @opts.athack
 				join main_channel, @friends
 			else
@@ -962,7 +960,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 			end
 		else
-			new_ids    = page("friends/ids/#{@me["screen_name"]}", @me["friends_count"], limit)
+			new_ids    = page("friends/ids/#{@me["screen_name"]}", @me["friends_count"])
 			friend_ids = @friends.reverse.map {|friend| friend["id"] }
 
 			(friend_ids - new_ids).each do |id|
@@ -972,8 +970,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			new_ids -= friend_ids
 			unless new_ids.empty?
-				new_friends = page("statuses/friends/#{@me["screen_name"]}",
-				                   new_ids.size, { :authenticate => false }).reject do |friend|
+				new_friends = page("statuses/friends/#{@me["screen_name"]}", new_ids.size,
+				                   false).reject do |friend|
 					@friends.any? {|i| i["id"] == friend["id"] }
 				end
 				@friends.concat new_friends
@@ -1186,8 +1184,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		raise APIFailed, e.inspect
 	end
 
-	def page(interface, max_count, limit, authenticate = false)
-		r = []
+	def page(interface, max_count, authenticate = false)
+		@limit_remaining_for_ip ||= nil
+		limit = 0.9 * (@limit_remaining_for_ip || 2)
+		r     = []
 		1.upto(limit) do |num|
 			ret = api(interface, { :page => num }, { :authenticate => authenticate })
 			count_per_page ||= ret.size
