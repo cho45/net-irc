@@ -116,6 +116,8 @@ Force SSL connection for API with credentials.
 
 ### max_params_count=<number>
 
+### check_friends_interval=<seconds>
+
 ## Extended commands through the CTCP ACTION
 
 ### list (ls)
@@ -283,7 +285,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#post NICK, @me.screen_name if @nick != @me.screen_name
 		post @prefix, JOIN, main_channel
 		post server_name, MODE, main_channel, "+mto", @prefix.nick
-		post @prefix, TOPIC, main_channel, generate_status_message(@me.status) if @me.status
+		if @me.status
+			@me.status.user = @me
+			post @prefix, TOPIC, main_channel, generate_status_message(@me.status.text)
+		end
 
 		if @opts.jabber
 			jid, pass = @opts.jabber.split(":", 2)
@@ -323,7 +328,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep 3600 # interval(@ratio.friends)
+				sleep @opts.check_friends_interval || 3600
 			end
 		end
 
@@ -333,7 +338,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@suffix_bl = fetch_suffix_bl
 
 		@check_timeline_thread = Thread.start do
-			sleep 3
+			sleep 2 * (@me.friends_count / 100.to_f).ceil
 
 			loop do
 				begin
@@ -421,8 +426,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 					ret = api("statuses/update", { :status => mesg, :source => source })
 					log oops(ret) if ret.truncated
-					ret.user = nil
-					@me.status = ret
+					ret.user.status = ret
+					@me = ret.user
 				end
 			else # direct message
 				ret = api("direct_messages/new", { :user => target, :text => mesg })
@@ -475,12 +480,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless (1..200).include?(count = args[1].to_i)
 				count = 20
 			end
-			to = nick == @nick ? server_name : nick
+			to  = nick == @nick ? server_name : nick
 			res = api("statuses/user_timeline/#{nick}",
-			          { :count => count },{ :authenticate => false }).reverse_each do |s|
+			          { :count => count }, { :authenticate => false })
+			res.reverse_each do |s|
 				time = Time.parse(s.created_at) rescue Time.now
 				post to, NOTICE, main_channel,
-				     "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s)}"
+				     "#{time.strftime "%m-%d %H:%M"} #{generate_status_message(s.text)}"
 			end
 			unless res
 				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
@@ -494,7 +500,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if args.empty?
 				if method == "create"
 					id = @timeline.last
-					@tmap.any? do |k, v|
+					@tmap.any? do |tid, v|
 						if v.id == id
 							statuses.push v
 						end
@@ -512,7 +518,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					case
 					when status = @tmap[tid_or_nick]
 						statuses.push status
-					when friend = @friends.find {|i| i.screen_name.casecmp(tid_or_nick).zero? }
+					when friend = (@friends || []).find {|i| i.screen_name.casecmp(tid_or_nick).zero? }
 						if friend.status
 							statuses.push friend.status
 						else
@@ -531,13 +537,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					next
 				end
 				res = api("favorites/#{method}/#{status.id}")
-				log "#{entered}: #{res.user.screen_name}: #{res.text}"
+				log "#{entered}: #{res.user.screen_name}: #{generate_status_message(res.text)}"
 				if method == "create"
 					@favorites.push res
 				else
 					@favorites.delete_if {|i| i.id == res.id }
 				end
-				sleep 0.5
 			end
 		when "link", "ln"
 			args.each do |tid|
@@ -595,19 +600,29 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			b = false
 			statuses.each do |status|
 				res = api("statuses/destroy/#{status.id}")
-				@tmap.delete_if {|k, v| v.id == res.id }
-				b = @me.key?("status") and @me.status.id == status.id
+				@tmap.delete_if {|tid, v| v.id == res.id }
+				b = @me.status and @me.status.id == status.id
 				log "Destroyed: #{res.text}"
-				sleep 0.5
 			end
 			if b
+				sleep 2
 				@me = api("account/update_profile") #api("account/verify_credentials")
-				post @prefix, TOPIC, main_channel, generate_status_message(@me.status) if @me.status
+				if @me.status
+					@me.status.user = @me
+					msg = generate_status_message(@me.status.text)
+					@tmap.any? do |tid, v|
+						if v.id == @me.status.id
+							msg << " " << colored_tid(tid)
+						end
+					end
+					post @prefix, TOPIC, main_channel, msg
+				end
 			end
 		when "name"
 			name = mesg.split(/ +/, 3)[2]
 			unless name.nil?
 				@me = api("account/update_profile", { :name => name })
+				@me.status.user = @me if @me.status
 				log "You are named #{@me.name}."
 			end
 		when "email"
@@ -615,20 +630,24 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			email = args.first
 			unless email.nil?
 				@me = api("account/update_profile", { :email => email })
+				@me.status.user = @me if @me.status
 			end
 		when "url"
 			# FIXME
 			url = args.first || ""
 			@me = api("account/update_profile", { :url => url })
+			@me.status.user = @me if @me.status
 		when "in", "location"
 			location = mesg.split(/ +/, 3)[2] || ""
 			@me = api("account/update_profile", { :location => location })
-			location = @me.location.empty? ? "nowhere" : "in #{@me.location}"
+			@me.status.user = @me if @me.status
+			location = @me.location and @me.location.empty? ? "nowhere" : "in #{@me.location}"
 			log "You are #{location} now."
 		when /\Adesc(?:ription)?\z/
 			# FIXME
 			description = mesg.split(/ +/, 3)[2] || ""
 			@me = api("account/update_profile", { :description => description })
+			@me.status.user = @me if @me.status
 		#when /\Acolou?rs?\z/ # TODO
 		#	# bg, text, link, fill and border
 		#when "image", "img" # TODO
@@ -643,11 +662,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				ret  = api("statuses/update", { :status => text, :source => source,
 				                                :in_reply_to_status_id => status.id })
 				log oops(ret) if ret.truncated
-				msg = generate_status_message(status)
+				msg = generate_status_message(status.text)
 				url = permalink(status)
 				log "Status updated (In reply to #{colored_tid(tid)}: #{msg} <#{url}>)"
-				ret.user = nil
-				@me.status = ret
+				ret.user.status = ret
+				@me = ret.user
 			end
 		when /\Aspoo(o+)?f\z/
 			@sources = args.empty? \
@@ -661,7 +680,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				return
 			end
 			args.each do |bot|
-				unless user = @friends.find {|i| i.screen_name.casecmp(bot).zero? }
+				user = (@friends || []).find {|i| i.screen_name.casecmp(bot).zero? }
+				unless user
 					post server_name, ERR_NOSUCHNICK, bot, "No such nick/channel"
 					next
 				end
@@ -697,14 +717,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			return
 		end
 
-		host = hostname user
-		desc = user.name
-		desc = "#{desc} / #{user.description}".gsub(/\s+/, " ") unless user.description.empty?
+		host      = hostname user
+		desc      = user.name
+		desc      = "#{desc} / #{user.description}".gsub(/\s+/, " ") if user.description and not user.description.empty?
 		signon_at = Time.parse(user.created_at).to_i rescue 0
 		idle_sec  = (Time.now - (user.status ? Time.parse(user.status.created_at) : signon_at)).to_i rescue 0
-		location  = user.location.empty? ? "SoMa neighborhood of San Francisco, CA" : user.location
+		location  = user.location
+		location  = "SoMa neighborhood of San Francisco, CA" if location.nil? or location.empty?
 		post server_name, RPL_WHOISUSER,   @nick, nick, "id=%09d" % user.id, host, "*", desc
-		#post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, "SoMa neighborhood of San Francisco, CA"
 		post server_name, RPL_WHOISSERVER, @nick, nick, api_base.host, location
 		post server_name, RPL_WHOISIDLE,   @nick, nick, "#{idle_sec}", "#{signon_at}", "seconds idle, signon time"
 		post server_name, RPL_ENDOFWHOIS,  @nick, nick, "End of WHOIS list"
@@ -721,9 +741,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			users.concat @friends.reverse if @friends
 			users.each {|friend| whoreply channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
-		when @groups.key?(channel)
-			@groups[channel].each do |name|
-				whoreply channel, @friends.find {|i| i.screen_name == name }
+		when (@groups.key?(channel) and @friends)
+			@groups[channel].each do |nick|
+				whoreply channel, @friends.find {|i| i.screen_name == nick }
 			end
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
@@ -774,7 +794,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick, channel = *m.params
 		return if channel.casecmp(main_channel).zero?
 
-		if @friends and f = @friends.find {|i| i.screen_name.casecmp(nick).zero? }
+		f = (@friends || []).find {|i| i.screen_name.casecmp(nick).zero? }
+		if f
 			((@groups[channel] ||= []) << f.screen_name).uniq!
 			post generate_prefix(f), JOIN, channel
 			post server_name, MODE, channel, "+v", nick
@@ -810,14 +831,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			require "levenshtein"
 			topic    = m.params[1]
 			previous = @me.status
-			distance = Levenshtein.normalized_distance(previous.text, topic)
+			return unless previous
 
+			distance = Levenshtein.normalized_distance(previous.text, topic)
 			return if distance.zero?
 
 			status = api("statuses/update", { :status => topic, :source => source })
 			log oops(ret) if status.truncated
-			status.user = nil
-			@me.status = status
+			status.user.status = status
+			@me = status.user
 
 			if distance < 0.5
 				deleted = api("statuses/destroy/#{previous.id}")
@@ -839,44 +861,49 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			next if id.nil? or @timeline.include?(id)
 
 			@timeline << id
-			tid  = @tmap.push(status.dup)
-			mesg = generate_status_message(status)
+
+			status.user.status = status
+			tid  = @opts.tid ? @tmap.push(status) : nil
 			user = status.user
-			nick = user.screen_name
 
-			status.user = nil
+			@log.debug [id, user.screen_name, status.text]
 
-			mesg << " " << colored_tid(tid) if @opts.tid
-
-			@log.debug [id, nick, mesg]
-			if nick == @me.screen_name # 自分のときは TOPIC に
+			if user.id == @me.id
+				mesg = generate_status_message(status.text)
+				mesg << " " << colored_tid(tid) if @opts.tid
 				post @prefix, TOPIC, main_channel, mesg
 
-				@me.status = status
+				@me = user
 			else
-				message(user, main_channel, mesg)
-
-				@friends.any? do |friend|
-					if friend.id == user.id
-						friend.status = status
+				if @friends
+					b = false
+					@friends.each_with_index do |friend, i|
+						if b = friend.id == user.id
+							@friends[i] = user
+							break
+						end
+					end
+					unless b
+						join main_channel, [user]
+						@friends << user
 					end
 				end
+
+				message(status, main_channel, tid)
 			end
 			@groups.each do |channel, members|
-				next unless members.include?(nick)
-				message(user, channel, mesg)
+				next unless members.include?(user.screen_name)
+				message(status, channel, tid)
 			end
 		end
 		@log.debug "@timeline.size = #{@timeline.size}"
 		@timeline = @timeline.last(200)
 	end
 
-	def generate_status_message(status)
-		mesg = status.text
+	def generate_status_message(mesg)
 		@log.debug mesg.gsub(/\r\n|[\r\n]/, "<\\n>")
 
 		mesg = decode_utf7(mesg)
-		# time = Time.parse(status.created_at) rescue Time.now
 		#mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/) do
 		mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t]/) do
 			case $&
@@ -908,20 +935,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			next if id.nil? or @timeline.include?(id)
 
 			@timeline << id
+
+			mention.user.status = mention
+			tid  = @opts.tid ? @tmap.push(mention) : nil
 			user = mention.user
-			mesg = generate_status_message(mention)
-			tid  = @tmap.push(mention)
 
-			mesg << " " << colored_tid(tid) if @opts.tid
+			@log.debug [id, user.screen_name, mention.text].inspect
+			message(mention, main_channel, tid)
 
-			@log.debug [id, user.screen_name, mesg].inspect
-			message(user, main_channel, mesg)
-
-			@friends.any? do |friend|
+			@friends.each_with_index do |friend, i|
 				if friend.id == user.id
-					friend.status = status
+					@friends[i] = user
+					break
 				end
-			end
+			end if @friends
 		end
 	end
 
@@ -931,15 +958,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		                : { :count => 1 }).reverse_each do |mesg|
 			id   = @prev_dm_id = mesg.id
 			user = mesg.sender
-			text = mesg.text
+			tid  = nil
+			text = generate_status_message(mesg.text)
 			@log.debug [id, user.screen_name, text].inspect
-			message(user, @nick, text)
+			message(user, @nick, tid, text)
 		end
 	end
 
 	def check_friends
 		if @friends.nil?
-			@friends = page("statuses/friends/#{@me.screen_name}", @me.friends_count)
+			@friends = page("statuses/friends/#{@me.id}", @me.friends_count)
 			if @opts.athack
 				join main_channel, @friends
 			else
@@ -958,22 +986,25 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 			end
 		else
-			new_ids    = page("friends/ids/#{@me.screen_name}", @me.friends_count)
+			new_ids    = page("friends/ids/#{@me.id}", @me.friends_count)
 			friend_ids = @friends.reverse.map {|friend| friend.id }
 
 			(friend_ids - new_ids).each do |id|
-				friend = @friends.delete_if {|i| i.id == id }
-				post generate_prefix(friend), PART, main_channel, ""
+				@friends.delete_if do |friend|
+					if friend.id == id
+						post generate_prefix(friend), PART, main_channel, ""
+					end
+				end
 			end
 
 			new_ids -= friend_ids
 			unless new_ids.empty?
-				new_friends = page("statuses/friends/#{@me.screen_name}", new_ids.size,
-				                   false).reject do |friend|
+				new_friends = page("statuses/friends/#{@me.id}", new_ids.size)
+				new_friends = new_friends.reject do |friend|
 					@friends.any? {|i| i.id == friend.id }
 				end
+				join main_channel, new_friends.reverse
 				@friends.concat new_friends
-				join main_channel, new_friends
 			end
 		end
 	end
@@ -1162,7 +1193,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 				raise APIFailed, res["error"]
 			end
-			res.to_struct
+			res.to_tig_struct
 		when Net::HTTPNotModified # 304
 			[]
 		when Net::HTTPBadRequest # 400: exceeded the rate limitation
@@ -1183,35 +1214,36 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def page(interface, max_count, authenticate = false)
-		@limit_remaining_for_ip ||= nil
-		limit = 0.9 * (@limit_remaining_for_ip || 2)
+		@limit_remaining_for_ip ||= 56
+		limit = 0.9 * @limit_remaining_for_ip
 		r     = []
+		cpp   = nil # counts per page
 		1.upto(limit) do |num|
 			ret = api(interface, { :page => num }, { :authenticate => authenticate })
-			count_per_page ||= ret.size
+			cpp ||= ret.size
 			r.concat ret
-			if ret.size != count_per_page or
-			   num >= max_count / count_per_page.to_f or
-			   r.empty?
-				break
-			end
+			break if ret.empty? or num >= max_count / cpp.to_f or
+			         ret.size != cpp or r.size >= max_count
 		end
 		r
 	end
 
-	def message(sender, target, str)
-		#str.gsub!(/&#(x)?([0-9a-f]+);/i) do
-		#	[$1 ? $2.hex : $2.to_i].pack("U")
-		#end
-		screen_name = sender.screen_name
-		sender.screen_name = @nicknames[screen_name] || screen_name
-		prefix = generate_prefix(sender)
+	def message(struct, target, tid =nil, str = nil)
+		unless str
+			str = struct.is_a?(Status) ? struct.text : struct.status.text
+			str = "#{str} #{colored_tid(tid)}" if tid
+		end
+		user        = (struct.is_a?(User) ? struct : struct.user).dup
+		screen_name = user.screen_name
+		user.screen_name = @nicknames[screen_name] || screen_name
+		prefix = generate_prefix(user)
+		str    = generate_status_message(str)
+
 		post prefix, PRIVMSG, target, str
 	end
 
 	def log(str)
-		str.gsub!(/\r\n|[\r\n]/, " ")
-		post server_name, NOTICE, main_channel, str
+		post server_name, NOTICE, main_channel, str.gsub(/\r\n|[\r\n]/, " ")
 	end
 
 	def untinyurl(text)
@@ -1423,15 +1455,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 end
 
 class Array
-	def to_struct
+	def to_tig_struct
 		map do |v|
-			v.respond_to?(:to_struct) ? v.to_struct : v
+			v.respond_to?(:to_tig_struct) ? v.to_tig_struct : v
 		end
 	end
 end
 
 class Hash
-	def to_struct
+	def to_tig_struct
 		if empty?
 			#warn "" if $VERBOSE
 			#raise Error
@@ -1439,6 +1471,7 @@ class Hash
 		end
 
 		struct = case
+			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k } # Ruby 1.9
 			when keys.all? {|k| TwitterIrcGateway::User.members.map {|m| m.to_s }.include? k }
 				TwitterIrcGateway::User.new
 			when keys.all? {|k| TwitterIrcGateway::Status.members.map {|m| m.to_s }.include? k }
@@ -1449,7 +1482,7 @@ class Hash
 				Struct.new(*members).new
 		end
 		each do |k, v|
-			struct[k.to_sym] = v.respond_to?(:to_struct) ? v.to_struct : v
+			struct[k.to_sym] = v.respond_to?(:to_tig_struct) ? v.to_tig_struct : v
 		end
 		struct
 	end
