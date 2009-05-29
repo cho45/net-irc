@@ -1025,9 +1025,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			new_ids -= friend_ids
 			unless new_ids.empty?
 				new_friends = page("statuses/friends/#{@me.id}", new_ids.size)
-				join main_channel, new_friends.delete_if do |friend|
+				join main_channel, new_friends.delete_if {|friend|
 					@friends.any? {|i| i.id == friend.id }
-				end.reverse
+				}.reverse
 				@friends.concat new_friends
 			end
 		end
