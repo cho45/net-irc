@@ -1471,13 +1471,15 @@ class Hash
 		end
 
 		struct = case
-			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k } # Ruby 1.9
+			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k.to_sym } # Ruby 1.9
+			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k } # Ruby 1.8
 			when keys.all? {|k| TwitterIrcGateway::User.members.map {|m| m.to_s }.include? k }
 				TwitterIrcGateway::User.new
 			when keys.all? {|k| TwitterIrcGateway::Status.members.map {|m| m.to_s }.include? k }
 				TwitterIrcGateway::Status.new
 			else
 				members = (TwitterIrcGateway::User.members + TwitterIrcGateway::Status.members +
+				#           keys.map {|m| m.to_sym }).uniq # Ruby 1.9
 				           keys).uniq.map {|m| m.to_sym }
 				Struct.new(*members).new
 		end
