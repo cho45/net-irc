@@ -34,10 +34,21 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 
 	tig {
 		server: localhost 16668
-		name: username mentions secure tid
-		# for Jabber
-		#name: username@example.com jabber=username@example.com:jabberpasswd mentions secure
 		password: password on Twitter
+		# Recommended
+		name: username mentions secure tid
+
+		# Same as TwitterIrcGateway.exe.config.sample
+		#   (90, 360 and 300 seconds)
+		#name: username dm ratio=4:1 maxlimit=50
+		#name: username dm ratio=20:5:6 maxlimit=62 mentions
+		#
+		# <http://cheebow.info/chemt/archives/2009/04/posttwit.html>
+		#   (60, 360 and 150 seconds)
+		#name: username dm ratio=30:12:5 maxlimit=94 mentions
+		#
+		# for Jabber
+		#name: username jabber=username@example.com:jabberpasswd secure
 	}
 
 ### athack
@@ -94,7 +105,21 @@ Use IM instead of any APIs (e.g. post)
 
 ### ratio=<timeline>:<dm>[:<mentions>]
 
-13:2 by default. 46 seconds and 5 minutes.
+"80:3:15" by default.
+
+	/me ratios
+
+	   ratio | timeline |   dm  | mentions |
+	---------+----------+-------+----------|
+	       1 |      37s |   N/A |      N/A |
+	    43:6 |      42s |    5m |      N/A |
+	  43:3:3 |      42s |   10m |      10m |
+	---------+----------+-------+----------|
+	 80:3:15 |      45s |   20m |       4m |
+	---------+----------+-------+----------|
+	 30:4:15 |       1m | 7m30s |       2m |
+	   1:1:1 |     110s |  110s |     110s |
+	---------------------------------------+
 
 ### dm[=<ratio>]
 
@@ -311,10 +336,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log "Client options: #{@opts.marshal_dump.inspect}"
 		@log.info "Client options: #{@opts.inspect}"
 
-		@ratio = (@opts.ratio || "13").split(":")
+		@ratio = (@opts.ratio || "80").split(":")
 		@ratio = Struct.new(:timeline, :dm, :mentions).new(*@ratio)
-		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ? 1 : 2 : @opts.dm
-		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 1 : 2 : @opts.mentions
+		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ?  3 : 18 : @opts.dm
+		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 15 : 18 : @opts.mentions
 
 		@check_friends_thread = Thread.start do
 			loop do
@@ -1000,10 +1025,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			new_ids -= friend_ids
 			unless new_ids.empty?
 				new_friends = page("statuses/friends/#{@me.id}", new_ids.size)
-				new_friends = new_friends.reject do |friend|
+				join main_channel, new_friends.delete_if do |friend|
 					@friends.any? {|i| i.id == friend.id }
-				end
-				join main_channel, new_friends.reverse
+				end.reverse
 				@friends.concat new_friends
 			end
 		end
@@ -1028,7 +1052,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def interval(ratio)
 		i     = 3600.0       # an hour in seconds
-		limit = 0.9 * @limit # 90% of limit
+		limit = 0.98 * @limit # 98% of rate limit
 		max   = @opts.maxlimit
 		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f }
 		i /= ratio.to_f
@@ -1214,8 +1238,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def page(interface, max_count, authenticate = false)
-		@limit_remaining_for_ip ||= 56
-		limit = 0.9 * @limit_remaining_for_ip
+		@limit_remaining_for_ip ||= 52
+		limit = 0.98 * @limit_remaining_for_ip # 98% of IP based rate limit
 		r     = []
 		cpp   = nil # counts per page
 		1.upto(limit) do |num|
