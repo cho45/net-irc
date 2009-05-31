@@ -978,13 +978,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_direct_messages
+		@prev_dm_id ||= nil
 		api("direct_messages",
 		    @prev_dm_id ? { :count => 200, :since_id => @prev_dm_id } \
 		                : { :count => 1 }).reverse_each do |mesg|
-			id   = @prev_dm_id = mesg.id
+			unless @prev_dm_id &&= mesg.id
+				@prev_dm_id = mesg.id
+				next
+			end
+
+			id   = mesg.id
 			user = mesg.sender
 			tid  = nil
-			text = generate_status_message(mesg.text)
+			text = mesg.text
 			@log.debug [id, user.screen_name, text].inspect
 			message(user, @nick, tid, text)
 		end
@@ -1275,7 +1281,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			http:// (?:
 				(?: bit\.ly | (?:(preview\.)? tin | rub) yurl\.com |
 				    is\.gd | cli\.gs | tr\.im | u\.nu | airme\.us |
-					 ff\.im | twurl.nl | bkite\.com | tumblr\.com
+					 ff\.im | twurl.nl | bkite\.com | tumblr\.com |
+					 pic\.gd | sn\.im
 			   ) / [0-9a-z=-]+ (\?)? |
 				blip\.fm/~ (?>[0-9a-z]+) (?!/)
 			)
@@ -1430,6 +1437,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	Status = Struct.new(:id, :text, :source, :created_at, :truncated, :favorited,
 	                    :in_reply_to_status_id, :in_reply_to_user_id,
 	                    :in_reply_to_screen_name, :user)
+	DM     = Struct.new(:id, :text, :created_at,
+	                    :sender_id, :sender_screen_name, :sender,
+	                    :recipient_id, :recipient_screen_name, :recipient)
 
 	class TypableMap < Hash
 		Roman = %w[
@@ -1495,16 +1505,15 @@ class Hash
 		end
 
 		struct = case
-			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k.to_sym } # Ruby 1.9
-			#when keys.all? {|k| TwitterIrcGateway::User.members.include? k } # Ruby 1.8
-			when keys.all? {|k| TwitterIrcGateway::User.members.map {|m| m.to_s }.include? k }
+			when (keys - TwitterIrcGateway::User.members.map {|m| m.to_s }).size.zero?
 				TwitterIrcGateway::User.new
-			when keys.all? {|k| TwitterIrcGateway::Status.members.map {|m| m.to_s }.include? k }
+			when (keys - TwitterIrcGateway::Status.members.map {|m| m.to_s }).size.zero?
 				TwitterIrcGateway::Status.new
+			when (keys - TwitterIrcGateway::DM.members.map {|m| m.to_s }).size.zero?
+				TwitterIrcGateway::DM.new
 			else
 				members = (TwitterIrcGateway::User.members + TwitterIrcGateway::Status.members +
-				#           keys.map {|m| m.to_sym }).uniq # Ruby 1.9
-				           keys).uniq.map {|m| m.to_sym }
+				           TwitterIrcGateway::DM.members + keys).uniq.map {|m| m.to_sym }
 				Struct.new(*members).new
 		end
 		each do |k, v|
