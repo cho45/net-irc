@@ -45,7 +45,7 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 		#
 		# <http://cheebow.info/chemt/archives/2009/04/posttwit.html>
 		#   (60, 360 and 150 seconds)
-		#name: username dm ratio=30:12:5 maxlimit=94 mentions
+		#name: username dm ratio=30:5:12 maxlimit=94 mentions
 		#
 		# for Jabber
 		#name: username jabber=username@example.com:jabberpasswd secure
@@ -112,13 +112,17 @@ Use IM instead of any APIs (e.g. post)
 	   ratio | timeline |   dm  | mentions |
 	---------+----------+-------+----------|
 	       1 |      37s |   N/A |      N/A |
-	    43:6 |      42s |    5m |      N/A |
+	    46:3 |      39s |   10m OR N/A     |
+	    43:6 |      42s |    5m OR N/A     |
 	  43:3:3 |      42s |   10m |      10m |
 	---------+----------+-------+----------|
 	 80:3:15 |      45s |   20m |       4m |
 	---------+----------+-------+----------|
-	 30:4:15 |       1m | 7m30s |       2m |
-	   1:1:1 |     110s |  110s |     110s |
+	     4:1 |      46s |  3m4s |      N/A |
+	  20:5:6 |      57s | 3m48s |    3m10s |
+	 30:5:12 |      58s | 5m45s |    2m24s |
+	 31:4:15 |       1m | 7m30s |       2m |
+	   1:1:1 |    1m50s | 1m50s |    1m50s |
 	---------------------------------------+
 
 ### dm[=<ratio>]
@@ -265,6 +269,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@config    = Pathname.new(ENV["HOME"]) + ".tig"
 		@suffix_bl = []
 		@etags     = {}
+		@consums   = []
 		@limit     = hourly_limit
 		@tmap      = TypableMap.new
 		@friends   =
@@ -789,7 +794,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mode = case u.screen_name
 			when @me.screen_name        then "@"
 			#when @drones.include?(u.id) then "%" # FIXME
-			else                                "+"
+			else                             "+"
 		end
 		post server_name, RPL_WHOREPLY, @nick, channel, user, host, serv, nick, "H*#{mode}", "0 #{real}"
 	end; private :whoreply
@@ -879,9 +884,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	private
 	def check_timeline
-		q = { :count => 200 }
-		q[:since_id] = @timeline.last unless @timeline.empty?
-		api("statuses/friends_timeline", q).reverse_each do |status|
+		api("statuses/friends_timeline", {
+			:count    => 200,
+			:since_id => @timeline.last
+		}).reverse_each do |status|
 			id = status.id
 			next if id.nil? or @timeline.include?(id)
 
@@ -891,7 +897,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			tid  = @opts.tid ? @tmap.push(status) : nil
 			user = status.user
 
-			@log.debug [id, user.screen_name, status.text]
+			@log.debug [id, user.screen_name, status.text].inspect
 
 			if user.id == @me.id
 				mesg = generate_status_message(status.text)
@@ -926,15 +932,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def generate_status_message(mesg)
-		@log.debug mesg.gsub(/\r\n|[\r\n]/, "<\\n>")
-
 		mesg = decode_utf7(mesg)
 		#mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/) do
 		mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t]/) do
 			case $&
 			when "&lt;" then "<"
 			when "&gt;" then ">"
-			else " "
+			else             " "
 			end
 		end
 		mesg = mesg.sub(/\s*#{Regexp.union(*@suffix_bl)}\s*\z/, "") unless @suffix_bl.empty?
@@ -979,9 +983,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_direct_messages
 		@prev_dm_id ||= nil
-		api("direct_messages",
-		    @prev_dm_id ? { :count => 200, :since_id => @prev_dm_id } \
-		                : { :count => 1 }).reverse_each do |mesg|
+		api("direct_messages", {
+			:count    => @prev_dm_id ? 200 : 1,
+			:since_id => @prev_dm_id
+		}).reverse_each do |mesg|
 			unless @prev_dm_id &&= mesg.id
 				@prev_dm_id = mesg.id
 				next
@@ -1057,12 +1062,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def interval(ratio)
-		i     = 3600.0       # an hour in seconds
-		limit = 0.98 * @limit # 98% of rate limit
+		now   = Time.now
 		max   = @opts.maxlimit
-		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f }
+		limit = 0.98 * @limit # 98% of the rate limit
+		i     = 3600.0        # an hour in seconds
+		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f } +
+		     @consums.delete_if {|t| t < now }.size
 		i /= ratio.to_f
-		i /= (max and max < limit) ? max : limit
+		i /= (max and 0 < max and max < limit) ? max : limit
 	rescue => e
 		@log.error e.inspect
 		100
@@ -1078,7 +1085,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					@im.received_messages.each do |msg|
-						@log.debug [msg.from, msg.body]
+						@log.debug [msg.from, msg.body].inspect
 						if msg.from.strip == jabber_bot_id
 							# Twitter -> 'id: msg'
 							body = msg.body.sub(/\A(.+?)(?:\(([^()]+)\))?: /, "")
@@ -1197,11 +1204,25 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		if opts[:authenticate]
 			hourly_limit = ret["X-RateLimit-Limit"].to_i
-			if not hourly_limit.zero? and @limit != hourly_limit
-				msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
-				log msg
-				@log.info msg
-				@limit = hourly_limit
+			if not hourly_limit.zero?
+				if @limit != hourly_limit
+					msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
+					log msg
+					@log.info msg
+					@limit = hourly_limit
+				end
+
+				#if req.is_a?(Net::HTTP::Get) and not %w{
+				if not %w{
+					statuses/friends_timeline
+					direct_messages
+					statuses/mentions
+				}.include?(path) and not ret.is_a?(Net::HTTPServerError)
+					expired_on = Time.parse(ret["Date"]) rescue Time.now
+					expired_on += 3636 # 1.01 hours in seconds later
+					@consums << expired_on
+					@log.debug @consums.inspect
+				end
 			end
 		elsif ret["X-RateLimit-Remaining"]
 			@limit_remaining_for_ip = ret["X-RateLimit-Remaining"].to_i
@@ -1279,11 +1300,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def untinyurl(text)
 		text.gsub(%r{
 			http:// (?:
-				(?: bit\.ly | (?:(preview\.)? tin | rub) yurl\.com |
-				    is\.gd | cli\.gs | tr\.im | u\.nu | airme\.us |
-					 ff\.im | twurl.nl | bkite\.com | tumblr\.com |
-					 pic\.gd | sn\.im
-			   ) / [0-9a-z=-]+ (\?)? |
+				(?: bit\.ly | (?:(preview\.)? tin | rub) yurl\.com
+				  | is\.gd | cli\.gs | tr\.im | u\.nu | airme\.us
+				  | ff\.im | twurl.nl | bkite\.com | tumblr\.com
+				  | pic\.gd | sn\.im )
+				/ [0-9a-z=-]+ (\?)? |
 				blip\.fm/~ (?>[0-9a-z]+) (?!/)
 			)
 		}ix) do |url|
@@ -1513,7 +1534,7 @@ class Hash
 				TwitterIrcGateway::DM.new
 			else
 				members = (TwitterIrcGateway::User.members + TwitterIrcGateway::Status.members +
-				           TwitterIrcGateway::DM.members + keys).uniq.map {|m| m.to_sym }
+				           TwitterIrcGateway::DM.members + keys).map {|m| m.to_sym }.uniq
 				Struct.new(*members).new
 		end
 		each do |k, v|
