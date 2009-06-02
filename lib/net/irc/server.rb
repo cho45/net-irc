@@ -68,12 +68,12 @@ class Net::IRC::Server
 		end
 
 		# Override subclass.
-		def avaiable_user_modes
+		def available_user_modes
 			"eixwy"
 		end
 
 		# Override subclass.
-		def avaiable_channel_modes
+		def available_channel_modes
 			"spknm"
 		end
 
@@ -183,7 +183,7 @@ class Net::IRC::Server
 			post server_name, RPL_WELCOME,  @nick, "Welcome to the Internet Relay Network #{@prefix}"
 			post server_name, RPL_YOURHOST, @nick, "Your host is #{server_name}, running version #{server_version}"
 			post server_name, RPL_CREATED,  @nick, "This server was created #{Time.now}"
-			post server_name, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{avaiable_user_modes} #{avaiable_channel_modes}"
+			post server_name, RPL_MYINFO,   @nick, "#{server_name} #{server_version} #{available_user_modes} #{available_channel_modes}"
 		end
 	end
 end # Server
