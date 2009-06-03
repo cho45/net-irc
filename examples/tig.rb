@@ -240,14 +240,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		"mnti"
 	end
 
-	def initial_message
-		super
-		post server_name, RPL_ISUPPORT, @nick,
-		     "NETWORK=Twitter", "CHANTYPES=#", "NICKLEN=15", "TOPICLEN=420",
-		     "PREFIX=(hov)%@+", "CHANMODES=#{available_channel_modes}",
-		     "are supported by this server"
-	end
-
 	def main_channel
 		@opts.main_channel || "#twitter"
 	end
@@ -279,13 +271,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@nicknames = {}
 		@drones    = []
 		@config    = Pathname.new(ENV["HOME"]) + ".tig"
-		@sources   = []
 		@suffix_bl = []
 		@etags     = {}
 		@consums   = []
 		@limit     = hourly_limit
 		@tmap      = TypableMap.new(200)
 		@friends   =
+		@sources   =
 		@im        =
 		@im_thread =
 		@utf7      = nil
@@ -798,22 +790,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def whoreply(channel, user)
-		#     "<channel> <user> <host> <server> <nick>
-		#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
-		#             :<hopcount> <real name>"
-		prefix = generate_prefix(user)
-		server = api_base.host
-		real   = user.name
-		mode   = case prefix.nick
-			when @nick                     then "@"
-			#when @drones.include?(user.id) then "%" # FIXME
-			else                                "+"
-		end
-		post server_name, RPL_WHOREPLY, @nick, channel,
-		     prefix.user, prefix.host, server, prefix.nick, "H*#{mode}", "0 #{real}"
-	end; private :whoreply
-
 	def on_join(m)
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
@@ -847,15 +823,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		case
 		when channel.casecmp(main_channel).zero?
-			if friend
+			case
+			when friend #TODO
+			when api("users/username_available", { :username => nick }).valid
+				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			else
-				available = api("users/username_available", { :username => nick })
-				available = available and not available.valid
-				if not available
-					post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
-					return
-				end
-
 				user = api("friendships/create/#{nick}")
 				join main_channel, [user]
 				@friends << user if @friends
@@ -996,7 +968,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		nick = u.screen_name
 		nick = "@#{nick}" if @opts.athack
 		user = "id=%09d" % u.id
-		host = hostname u
+		host = api_base.host
+		host += "/protected" if u.protected
+		host += "/bot"       if @drones.include?(u.id)
+
 		Prefix.new("#{nick}!#{user}@#{host}")
 	end
 
@@ -1091,6 +1066,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@me.friends_count += new_friends.size
 			end
 		end
+	end
+
+	def whoreply(channel, user)
+		#     "<channel> <user> <host> <server> <nick>
+		#         ( "H" / "G" > ["*"] [ ( "@" / "+" ) ]
+		#             :<hopcount> <real name>"
+		prefix = generate_prefix(user)
+		server = api_base.host
+		real   = user.name
+		mode   = case prefix.nick
+			when @nick                     then "@"
+			#when @drones.include?(user.id) then "%" # FIXME
+			else                                "+"
+		end
+		post server_name, RPL_WHOREPLY, @nick, channel,
+		     prefix.user, prefix.host, server, prefix.nick, "H*#{mode}", "0 #{real}"
 	end
 
 	def join(channel, users)
@@ -1250,7 +1241,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		if opts[:authenticate]
 			hourly_limit = ret["X-RateLimit-Limit"].to_i
-			if not hourly_limit.zero?
+			unless hourly_limit.zero?
 				if @limit != hourly_limit
 					msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
 					log msg
@@ -1376,25 +1367,25 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		req = Net::HTTP::Head.new uri.request_uri, { "User-Agent" => user_agent }
 
-		begin
-			http.request(req) do |res|
-				if res.is_a?(Net::HTTPRedirection) and res.key?("Location")
-					begin
-						location = URI(res["Location"])
-					rescue URI::InvalidURIError
-					end
-					unless location.is_a? URI::HTTP
-						begin
-							location = URI.join(uri.to_s, res["Location"])
-						rescue URI::InvalidURIError, URI::BadURIError
-							# FIXME
-						end
-					end
-					uri = fetch_location_header(location, limit - 1)
+		http.request(req) do |res|
+			break if not res.is_a?(Net::HTTPRedirection) or not res.key?("Location")
+			begin
+				location = URI(res["Location"])
+			rescue URI::InvalidURIError
+			end
+			unless location.is_a? URI::HTTP
+				begin
+					location = URI.join(uri.to_s, res["Location"])
+				rescue URI::InvalidURIError, URI::BadURIError
+					# FIXME
 				end
 			end
-		rescue Timeout::Error, Net::HTTPBadResponse
+			uri = fetch_location_header(location, limit - 1)
 		end
+
+		uri
+	rescue => e
+		@log.error e.inspect
 		uri
 	end
 
@@ -1486,13 +1477,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def hostname(user)
-		hosts = [api_base.host]
-		hosts << "protected" if user.protected
-		hosts << "bot"       if @drones.include?(user.id)
-		hosts.join("/")
-	end
-
 	def user_agent
 		"#{self.class}/#{server_version} (#{File.basename(__FILE__)}; Net::IRC::Server)" <<
 		" Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
@@ -1501,6 +1485,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def permalink(status); "#{api_base}#{status.user.screen_name}/statuses/#{status.id}" end
 	def source;            @sources[rand(@sources.size)].first                           end
 	def httpproxy_regex;   /\A(?:([^:@]+)(?::([^@]+))?@)?([^:]+)(?::(\d+))?\z/           end
+
+	def initial_message
+		super
+		post server_name, RPL_ISUPPORT, @nick,
+		     "NETWORK=Twitter", "CHANTYPES=#", "NICKLEN=15", "TOPICLEN=420",
+		     "PREFIX=(hov)%@+", "CHANMODES=#{available_channel_modes}",
+		     "are supported by this server"
+	end
 
 	User   = Struct.new(:id, :name, :screen_name, :location, :description, :url,
 	                    :following, :notifications, :protected, :time_zone,
@@ -1541,10 +1533,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			pya     pyu     pyo
 		]
 
-		def initialize(size = 102)
+		def initialize(size = nil)
 			@seq  = Roman
 			@n    = 0
-			@size = size
+			@size = size || @seq.size
 		end
 
 		def generate(n)
