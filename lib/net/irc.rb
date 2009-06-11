@@ -32,28 +32,30 @@ module Net::IRC
 			extract[2]
 		end
 
-		# Extract prefix string to [nick, user, host] Array.
+		# Extract Prefix String to [nick, user, host] Array.
 		def extract
 			_, *ret = *self.match(/^([^\s!]+)(?:!([^\s@]+)@(\S+))?$/)
 			ret
 		end
 	end
 
-	# Encoding to CTCP message. Prefix and postfix \x01.
-	def ctcp_encoding(str)
-		str = str.gsub(/\\/, "\\\\\\\\").gsub(/\x01/, '\a')
-		str = str.gsub(/\x10/, "\x10\x10").gsub(/\x00/, "\x10\x30").gsub(/\x0d/, "\x10r").gsub(/\x0a/, "\x10n")
+	# Encode to CTCP message. Prefix and postfix \x01.
+	def ctcp_encode(str)
+		str = str.gsub("\\", "\\\\\\\\").gsub("\x01", "\\a")
+		str = str.gsub("\x10", "\x10\x10").gsub("\x00", "\x10\x30").gsub("\r", "\x10r").gsub("\n", "\x10n")
 		"\x01#{str}\x01"
 	end
-	module_function :ctcp_encoding
+	#alias :ctcp_encoding :ctcp_encode
+	module_function :ctcp_encode #, :ctcp_encoding
 
-	# Decoding to CTCP message. Remove \x01.
-	def ctcp_decoding(str)
-		str = str.gsub(/\x01/, "")
-		str = str.gsub(/\x10n/, "\x0a").gsub(/\x10r/, "\x0d").gsub(/\x10\x30/, "\x00").gsub(/\x10\x10/, "\x10")
-		str = str.gsub(/\\a/, "\x01").gsub(/\\\\/, "\\")
+	# Decode from CTCP message delimited with \x01.
+	def ctcp_decode(str)
+		str = str.delete("\x01")
+		str = str.gsub("\x10n", "\n").gsub("\x10r", "\r").gsub("\x10\x30", "\x00").gsub("\x10\x10", "\x10")
+		str = str.gsub("\\a", "\x01").gsub(/\\(.|\z)/m, "\\1")
 		str
 	end
-	module_function :ctcp_decoding
+	#alias :ctcp_decoding :ctcp_decode
+	module_function :ctcp_decode #, :ctcp_decoding
 end
 

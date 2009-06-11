@@ -58,13 +58,10 @@ class Net::IRC::Message
 		if @params
 			f = false
 			@params.each do |param|
+				f = !f && (param.empty? || param[0] == ?: || param.include?(" "))
 				str << " "
-				if !f && (param.size == 0 || / / =~ param || /^:/ =~ param)
-					str << ":#{param}"
-					f = true
-				else
-					str << param
-				end
+				str << ":" if f
+				str << param
 			end
 		end
 
@@ -81,12 +78,22 @@ class Net::IRC::Message
 
 	# If the message is CTCP, return true.
 	def ctcp?
-		message = @params[1]
-		message[0] == ?\01 && message[message.length-1] == ?\01
+		#message = @params[1]
+		#message[0] == ?\01 && message[-1] == ?\01
+		/\x01(?>[^\x00\x01\r\n]*)\x01/ === @params[1]
+	end
+
+	def ctcps
+		messages = []
+		@params[1].gsub!(/\x01(?>[^\x00\x01\r\n]*)\x01/) do |m|
+			messages << ctcp_decode(m)
+			""
+		end
+		messages
 	end
 
 	def inspect
-		'#<%s:0x%x prefix:%s command:%s params:%s>' % [
+		"#<%s:0x%x prefix:%s command:%s params:%s>" % [
 			self.class,
 			self.object_id,
 			@prefix,
@@ -97,6 +104,6 @@ class Net::IRC::Message
 
 	autoload :ModeParser, "net/irc/message/modeparser"
 	autoload :ServerConfig, "net/irc/message/serverconfig"
-	autoload :ISupportModeParser, "net/irc/message/isupportmodeparser"
+	#autoload :ISupportModeParser, "net/irc/message/isupportmodeparser"
 end # Message
 

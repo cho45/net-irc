@@ -6,7 +6,7 @@ module Net::IRC::PATTERN # :nodoc:
 	# special    =  %x5B-60 / %x7B-7D
 	#                  ; "[", "]", "\", "`", "_", "^", "{", "|", "}"
 	LETTER   = 'A-Za-z'
-	DIGIT    = '\d'
+	DIGIT    = '0-9'
 	HEXDIGIT = "#{DIGIT}A-Fa-f"
 	SPECIAL  = '\x5B-\x60\x7B-\x7D'
 
@@ -21,7 +21,7 @@ module Net::IRC::PATTERN # :nodoc:
 	SERVERNAME = HOSTNAME
 
 	# nickname   =  ( letter / special ) *8( letter / digit / special / "-" )
-	#NICKNAME = "[#{LETTER}#{SPECIAL}\\w][-#{LETTER}#{DIGIT}#{SPECIAL}]*"
+	#NICKNAME = "[#{LETTER}#{SPECIAL}#{DIGIT}_][-#{LETTER}#{DIGIT}#{SPECIAL}]*"
 	NICKNAME = "\\S+" # for multibytes
 
 	# user       =  1*( %x01-09 / %x0B-0C / %x0E-1F / %x21-3F / %x41-FF )

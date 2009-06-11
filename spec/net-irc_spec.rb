@@ -168,25 +168,25 @@ describe Net::IRC::Prefix, "" do
 end
 
 describe Net::IRC, "utilities" do
-	it "has ctcp_encoding method" do
-		message = ctcp_encoding "ACTION hehe"
+	it "has ctcp_encode method" do
+		message = ctcp_encode "ACTION hehe"
 		message.should == "\x01ACTION hehe\x01"
 
-		message = ctcp_encoding "ACTION \x01 \x5c "
+		message = ctcp_encode "ACTION \x01 \x5c "
 		message.should == "\x01ACTION \x5c\x61 \x5c\x5c \x01"
 
-		message = ctcp_encoding "ACTION \x00 \x0a \x0d \x10 "
+		message = ctcp_encode "ACTION \x00 \x0a \x0d \x10 "
 		message.should == "\x01ACTION \x100 \x10n \x10r \x10\x10 \x01"
 	end
 
-	it "has ctcp_decoding method" do
-		message = ctcp_decoding "\x01ACTION hehe\x01"
+	it "has ctcp_decode method" do
+		message = ctcp_decode "\x01ACTION hehe\x01"
 		message.should == "ACTION hehe"
 
-		message = ctcp_decoding "\x01ACTION \x5c\x61 \x5c\x5c \x01"
+		message = ctcp_decode "\x01ACTION \x5c\x61 \x5c\x5c \x01"
 		message.should == "ACTION \x01 \x5c "
 
-		message = ctcp_decoding "\x01ACTION \x100 \x10n \x10r \x10\x10 \x01"
+		message = ctcp_decode "\x01ACTION \x100 \x10n \x10r \x10\x10 \x01"
 		message.should == "ACTION \x00 \x0a \x0d \x10 "
 	end
 end

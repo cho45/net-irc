@@ -250,7 +250,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
-		return on_ctcp(m[0], ctcp_decoding(m[1])) if m.ctcp?
+		return m[1].ctcps.each {|ctcp| on_ctcp(m[0], ctcp) } if m.ctcp?
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
@@ -359,7 +359,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		end
 	rescue ApiFailed => e
 		log e.inspect
-	end
+	end; private :on_ctcp
 
 	def on_whois(m)
 		nick = m.params[0]
