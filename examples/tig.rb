@@ -290,6 +290,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#@etags     = {}
 		@consums   = []
 		@limit     = hourly_limit
+		@latest_id =
 		@friends   =
 		@sources   =
 		@im        =
@@ -504,8 +505,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#when "invite"
 		end unless command.nil?
 
-		ret          = nil
-		retry_count  = 3
+		ret         = nil
+		retry_count = 3
 
 		mesg = escape_urls(mesg)
 
@@ -1056,9 +1057,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_ctcp_version(target, msg)
 		user = user(target)
 		if user and user.status
-			version = user.status.source.gsub(/<(?:[^>]+(?: href="([^"]+)"[^>]*)?)?>/) do |m|
-				$1 ? " <#{$1}>" : ""
-			end.strip
+			source = user.status.source
+			version = source.gsub(/<[^>]*>/, "").strip
+			version << " <#{$1}>" if / href="([^"]+)/ === source
 			post prefix(user), NOTICE, @nick, ctcp_encode("VERSION :#{version}")
 		end
 	end
@@ -1075,20 +1076,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_timeline
-		cmd = (@timeline.empty? and not @me.statuses_count.zero? and
-		       not @me.friends_count.zero?) ? NOTICE : PRIVMSG
+		cmd = (@timeline.empty? and
+		       not @me.statuses_count.zero? and not @me.friends_count.zero?) \
+		    ? NOTICE : PRIVMSG
 		q   = { :count => 200 }
-		q.update(:since_id => @timeline.last.id) unless @timeline.empty?
+		q.update(:since_id => @latest_id) if @latest_id
 		api("statuses/friends_timeline", q).reverse_each do |status|
-			id = status.id
-			next if id.nil? or not @timeline.empty? and @timeline.last.id > id
-
+			@latest_id = status.id
 			status.user.status = status
 			user = status.user
 			tid  = @timeline.push(status)
 			tid  = nil unless @opts.tid
 
-			@log.debug [id, user.screen_name, status.text].inspect
+			@log.debug [status.id, user.screen_name, status.text].inspect
 
 			if user.id == @me.id
 				mesg = generate_status_message(status.text)
@@ -1166,13 +1166,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_mentions
 		return if @timeline.empty?
-		@prev_mention_id ||= @timeline.first.id
+		@prev_mention_id ||= @timeline.last.id
 		api("statuses/mentions", {
 			:count    => 200,
 			:since_id => @prev_mention_id
 		}).reverse_each do |mention|
 			id = @prev_mention_id = mention.id
-			next if id.nil? or not @timeline.empty? and @timeline.last.id > id
+			next if @timeline.any? {|tid, s| s.id == id }
 
 			mention.user.status = mention
 			user = mention.user
@@ -1524,8 +1524,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		unless login and key
 			raise "bit.ly API key"
 		end
-		len         = (len || 20).to_i
-		longurls    = URI.extract(text, %w[http https]).uniq.map! do |url|
+
+		len      = (len || 20).to_i
+		longurls = URI.extract(text, %w[http https]).uniq.map! do |url|
 			URI.rstrip_unpaired_paren(url)
 		end.reject {|url| url.size < len }
 
@@ -1666,11 +1667,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			Net::HTTP::Put.new     uri.path,        header
 		when :delete
 			Net::HTTP::Delete.new  uri.request_uri, header
-		when :options
-			Net::HTTP::Options.new uri.request_uri, header
-		when :trace
-			Net::HTTP::Trace.new   uri.request_uri, header
-		else
+		else # raise ""
 		end
 		if req.request_body_permitted?
 			req["Content-Type"] ||= "application/x-www-form-urlencoded"
