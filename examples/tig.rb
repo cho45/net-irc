@@ -290,7 +290,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#@etags     = {}
 		@consums   = []
 		@limit     = hourly_limit
-		@latest_id =
 		@friends   =
 		@sources   =
 		@im        =
@@ -1076,11 +1075,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_timeline
-		cmd = (@timeline.empty? and
-		       not @me.statuses_count.zero? and not @me.friends_count.zero?) \
-		    ? NOTICE : PRIVMSG
+		cmd = PRIVMSG
 		q   = { :count => 200 }
-		q.update(:since_id => @latest_id) if @latest_id
+		if @latest_id ||= nil
+			q.update(:since_id => @latest_id)
+		elsif not @me.statuses_count.zero? and not @me.friends_count.zero?
+			cmd = NOTICE
+		end
+
 		api("statuses/friends_timeline", q).reverse_each do |status|
 			@latest_id = status.id
 			status.user.status = status
@@ -1192,11 +1194,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_direct_messages
-		if @prev_dm_id ||= nil
-			q = { :count => 200, :since_id => @prev_dm_id }
-		else
-			q = { :count => 1 }
-		end
+		@prev_dm_id ||= nil
+		q = @prev_dm_id ? { :count => 200, :since_id => @prev_dm_id } \
+		                : { :count => 1 }
 		api("direct_messages", q).reverse_each do |mesg|
 			unless @prev_dm_id &&= mesg.id
 				@prev_dm_id = mesg.id
@@ -1658,15 +1658,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		req = case method.to_s.downcase.to_sym
 		when :get
-			Net::HTTP::Get.new     uri.request_uri, header
+			Net::HTTP::Get.new    uri.request_uri, header
 		when :head
-			Net::HTTP::Head.new    uri.request_uri, header
+			Net::HTTP::Head.new   uri.request_uri, header
 		when :post
-			Net::HTTP::Post.new    uri.path,        header
+			Net::HTTP::Post.new   uri.path,        header
 		when :put
-			Net::HTTP::Put.new     uri.path,        header
+			Net::HTTP::Put.new    uri.path,        header
 		when :delete
-			Net::HTTP::Delete.new  uri.request_uri, header
+			Net::HTTP::Delete.new uri.request_uri, header
 		else # raise ""
 		end
 		if req.request_body_permitted?
@@ -1734,6 +1734,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		urls = []
 		(text.split(/[\s<>]+/) + [text]).each do |str|
 			next if /%[0-9A-Fa-f]{2}/ === str
+			# URI::UNSAFE + "#"
 			escaped_str = URI.escape(str, %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]#]})
 			URI.extract(escaped_str, %w[http https]).each do |url|
 				url = URI(URI.rstrip_unpaired_paren(url))
@@ -1786,8 +1787,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	User   = Struct.new(:id, :name, :screen_name, :location, :description, :url,
 	                    :following, :notifications, :protected, :time_zone,
 	                    :utc_offset, :created_at, :friends_count, :followers_count,
-	                    :statuses_count, :favourites_count, :profile_image_url,
-	                    :profile_background_color, :profile_text_color,
+	                    :statuses_count, :favourites_count, :verified_profile,
+	                    :profile_image_url, :profile_background_color, :profile_text_color,
 	                    :profile_link_color, :profile_sidebar_fill_color,
 	                    :profile_sidebar_border_color, :profile_background_image_url,
 	                    :profile_background_tile, :status)
@@ -1852,21 +1853,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		def first
-			r = nil
 			@size.times do |i|
 				id = generate((@n + i) % @size)
-				break r = self[id] if key? id
+				return self[id] if key? id
 			end unless empty?
-			r
+			nil
 		end
 
 		def last
-			r = nil
 			@size.times do |i|
 				id = generate(@n - 1 - i)
-				break r = self[id] if key? id
+				return self[id] if key? id
 			end unless empty?
-			r
+			nil
 		end
 
 		private :[]=
@@ -1893,11 +1892,11 @@ class Hash
 		end
 
 		struct = case
-			when tig_struct_of?(TwitterIrcGateway::User)
+			when struct_of?(TwitterIrcGateway::User)
 				TwitterIrcGateway::User.new
-			when tig_struct_of?(TwitterIrcGateway::Status)
+			when struct_of?(TwitterIrcGateway::Status)
 				TwitterIrcGateway::Status.new
-			when tig_struct_of?(TwitterIrcGateway::DM)
+			when struct_of?(TwitterIrcGateway::DM)
 				TwitterIrcGateway::DM.new
 			else
 				members = keys
@@ -1929,11 +1928,11 @@ class Hash
 				end
 			end
 			r
-		end.join(separator)
+		end.join separator
 	end
 
 	private
-	def tig_struct_of? struct
+	def struct_of? struct
 		(keys - struct.members.map {|m| m.to_s }).size.zero?
 	end
 end
