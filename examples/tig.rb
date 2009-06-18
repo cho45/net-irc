@@ -36,7 +36,7 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 		server: localhost 16668
 		password: password on Twitter
 		# Recommended
-		name: username mentions secure tid
+		name: username mentions tid
 
 		# Same as TwitterIrcGateway.exe.config.sample
 		#   (90, 360 and 300 seconds)
@@ -48,7 +48,7 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 		#name: username dm ratio=30:5:12 maxlimit=94 mentions
 		#
 		# for Jabber
-		#name: username jabber=username@example.com:jabberpasswd secure
+		#name: username jabber=username@example.com:jabberpasswd
 	}
 
 ### athack
@@ -131,10 +131,6 @@ Use IM instead of any APIs (e.g. post)
 
 ### maxlimit=<hourly_limit>
 
-### secure
-
-Force SSL connection for API with credentials.
-
 ### clientspoofing
 
 ### httpproxy=[<user>[:<password>]@]<address>[:<port>]
@@ -149,7 +145,7 @@ Force SSL connection for API with credentials.
 
 ### old_style_reply
 
-### tmap_size=<number:200>
+### tmap_size=<number:10404>
 
 ### strftime=<format:%m-%d %H:%M>
 
@@ -220,8 +216,12 @@ Ruby's by cho45
 
 =end
 
-$LOAD_PATH << "lib" << "../lib"
 $KCODE = "u" if RUBY_VERSION < "1.9" # json use this
+
+if lp = File.expand_path("lib") and File.directory?(lp) or
+   lp = File.expand_path("lib", "..") and File.directory?(lp)
+	$LOAD_PATH << lp
+end
 
 require "rubygems"
 require "net/irc"
@@ -260,9 +260,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@opts.main_channel || "#twitter"
 	end
 
-	def api_base
-		scheme = @opts.secure ? "https" : "http"
-		URI("#{scheme}://twitter.com/")
+	def api_base(secure = true)
+		URI("http#{"s" if secure}://twitter.com/")
 	end
 
 	def api_source
@@ -404,7 +403,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return if @opts.jabber
 
-		@timeline  = TypableMap.new(@opts.tmap_size || 200)
+		@timeline  = TypableMap.new(@opts.tmap_size || 10_404)
 		@sources   = @opts.clientspoofing ? fetch_sources : [[api_source, "tig.rb"]]
 		@suffix_bl = fetch_suffix_bl
 
@@ -504,9 +503,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#when "invite"
 		end unless command.nil?
 
-		ret         = nil
-		retry_count = 3
-
 		mesg = escape_urls(mesg)
 
 		if @opts.bitlify
@@ -520,6 +516,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			mesg = mesg.encoding!("ASCII-8BIT")
 		end
 
+		ret         = nil
+		retry_count = 3
 		begin
 			case
 			when target.ch?
@@ -1125,15 +1123,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def generate_status_message(mesg)
 		mesg = decode_utf7(mesg)
-		#mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/) do
-		mesg = mesg.gsub(/&[gl]t;|\r\n|[\r\n\t]/) do
-			case $&
-			when "&lt;" then "<"
-			when "&gt;" then ">"
-			else             " "
-			end
-		end
-		mesg = mesg.sub(/#{Regexp.union(*@suffix_bl)}\z/, "") unless @suffix_bl.empty?
+		mesg.gsub!("&gt;", ">")
+		mesg.gsub!("&lt;", "<")
+		#mesg.gsub!(/\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/, " ")
+		mesg.gsub!(/\r\n|[\r\n\t]/, " ")
+		mesg.sub!(/#{Regexp.union(*@suffix_bl)}\z/, "") unless @suffix_bl.empty?
 		mesg = untinyurl(mesg)
 		mesg.strip
 	end
@@ -1376,16 +1370,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api(path, query = {}, opts = {})
-		path  = path.sub(%r{\A/+}, "")
+		path.sub!(%r{\A/+}, "")
 		query = query.to_query_str
 
-		authenticate = opts[:authenticate] != false ? true : false
+		authenticate = opts.fetch(:authenticate, true)
 
-		uri = api_base
-		if not authenticate and @opts.secure
-			uri.scheme = "http"
-			uri = URI(uri.to_s)
-		end
+		uri = api_base(authenticate)
 		uri.path += path
 		uri.path += ".json" if path != "users/username_available"
 		uri.query = query unless query.empty?
@@ -1436,8 +1426,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPOK # 200
 			# Avoid Twitter's invalid JSON
 			json = ret.body.strip
-			json = json.sub(/"request"\s*:\s*NULL\s*(?=[,}])/) {|m| m.downcase }
-			json = json.sub(/\A(?:false|true)\z/) {|m| "[#{m}]" }
+			json.sub!(/"request"\s*:\s*NULL\s*(?=[,}])/) {|m| m.downcase }
+			json.sub!(/\A(?:false|true)\z/) {|m| "[#{m}]" }
 
 			res = JSON.parse json
 			if res.is_a?(Hash) and res["error"] # and not res["response"]
@@ -1514,7 +1504,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				  | ff\.im | twurl.nl | bkite\.com | tumblr\.com
 				  | pic\.gd | sn\.im | digg\.com )
 				/ [0-9a-z=-]+ |
-				blip\.fm/~ (?> [0-9a-z]+) (?! /)
+				blip\.fm/~ (?> [0-9a-z]+) (?! /) |
+				flic\.kr/[a-z0-9/]+
 			)
 		}ix) {|url| "#{resolve_http_redirect(URI(url)) || url}" }
 	end
@@ -1586,7 +1577,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		req = http_req :head, uri
 		http(uri, 3, 2).request(req) do |res|
-			break if not res.is_a?(Net::HTTPRedirection) or not res.key?("Location")
+			break if not res.is_a?(Net::HTTPRedirection) or
+			         not res.key?("Location")
 			begin
 				location = URI(res["Location"])
 			rescue URI::InvalidURIError
@@ -1610,7 +1602,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def decode_utf7(str)
 		begin
 			require "iconv"
-			str = str.sub(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
+			str.sub!(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
 			#FIXME str = "[utf7]: #{str}" if str =~ /[^a-z0-9\s]/i
 			str
 		rescue LoadError, Iconv::IllegalSequence
@@ -1787,7 +1779,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	User   = Struct.new(:id, :name, :screen_name, :location, :description, :url,
 	                    :following, :notifications, :protected, :time_zone,
 	                    :utc_offset, :created_at, :friends_count, :followers_count,
-	                    :statuses_count, :favourites_count, :verified_profile,
+	                    :statuses_count, :favourites_count, :verified, :verified_profile,
 	                    :profile_image_url, :profile_background_color, :profile_text_color,
 	                    :profile_link_color, :profile_sidebar_fill_color,
 	                    :profile_sidebar_border_color, :profile_background_image_url,
@@ -1862,7 +1854,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		def last
 			@size.times do |i|
-				id = generate(@n - 1 - i)
+				id = generate((@n - 1 - i) % @size)
 				return self[id] if key? id
 			end unless empty?
 			nil
@@ -1913,10 +1905,10 @@ class Hash
 		struct
 	end
 
-	# { :f => nil }     # => "f"
-	# { "f" => "" }     # => "f="
-	# { "f" => "v" }    # => "f=v"
-	# { "f" => [1, 2] } # => "f=1&f=2"
+	# { :f => nil }     #=> "f"
+	# { "f" => "" }     #=> "f="
+	# { "f" => "v" }    #=> "f=v"
+	# { "f" => [1, 2] } #=> "f=1&f=2"
 	def to_query_str separator = "&"
 		inject([]) do |r, (k, v)|
 			k = URI.encode_component k.to_s
@@ -1952,8 +1944,8 @@ class String
 end
 
 module URI::Escape
-	# URI.escape("あ１") # => "%E3%81%82\xEF\xBC\x91"
-	# URI("file:///４")  # => #<URI::Generic:0x9d09db0 URL:file:/４>
+	# URI.escape("あ１") #=> "%E3%81%82\xEF\xBC\x91"
+	# URI("file:///４")  #=> #<URI::Generic:0x9d09db0 URL:file:/４>
 	#   "\\d" -> "0-9" for Ruby 1.9
 	alias :_orig_escape :escape
 	def escape str, unsafe = %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]]}
