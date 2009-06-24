@@ -1444,7 +1444,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPBadRequest # 400: exceeded the rate limitation
 			if ret.key?("X-RateLimit-Reset")
 				s = ret["X-RateLimit-Reset"].to_i - Time.now.to_i
-				log "#{(s / 60.0).ceil} min remaining."
+				log "RateLimit: #{(s / 60.0).ceil} min remaining to get timeline"
 				sleep s
 			end
 			raise APIFailed, "#{ret.code}: #{ret.message}"
@@ -1631,8 +1631,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		source = http(uri, 5, 10).request(http_req(:get, uri)).body
 		source.encoding!("UTF-8") if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
 		source.split
-	rescue
-		r
+	rescue Errno::ECONNREFUSED, Timeout::Error => e
+		@log.error "Failed to get suffix_bl data from #{uri.host}: #{e.inspect}"
+		""
 	end
 
 	def http_req(method, uri, header = {}, credentials = nil)
