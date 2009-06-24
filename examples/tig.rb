@@ -1480,7 +1480,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				time = Time.parse(status.created_at) rescue Time.now
 				str  = "#{time.strftime(@opts.strftime || "%m-%d %H:%M")} #{str}" # TODO: color
 			end
-			str = "#{str} #{@opts.tid % tid}" if tid
 		end
 		user        = (struct.is_a?(User) ? struct : struct.user).dup
 		screen_name = user.screen_name
@@ -1488,6 +1487,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		user.screen_name = @nicknames[screen_name] || screen_name
 		prefix = prefix(user)
 		str    = generate_status_message(str)
+		str    = "#{str} #{@opts.tid % tid}" if tid
 
 		post prefix, command, target, str
 	end
