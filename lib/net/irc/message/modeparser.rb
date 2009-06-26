@@ -6,7 +6,7 @@ class Net::IRC::Message::ModeParser
 	NO_PARAM               = 3
 
 	def initialize
-		@modes    = {}
+		@modes          = {}
 		@op_to_mark_map = {}
 		@mark_to_op_map = {}
 
@@ -14,7 +14,7 @@ class Net::IRC::Message::ModeParser
 		set(:CHANMODES, 'beIR,k,l,imnpstaqr')
 		set(:PREFIX, '(ov)@+')
 	end
-	
+
 	def mark_to_op(mark)
 		mark.empty? ? nil : @mark_to_op_map[mark.to_sym]
 	end
@@ -22,7 +22,7 @@ class Net::IRC::Message::ModeParser
 	def set(key, value)
 		case key
 		when :PREFIX
-			if value =~ /^\(([a-zA-Z]+)\)(.+)$/
+			if value =~ /\A\(([a-zA-Z]+)\)(.+)\z/
 				@op_to_mark_map = {}
 				key, value = Regexp.last_match[1], Regexp.last_match[2]
 				key.scan(/./).zip(value.scan(/./)) {|pair|
@@ -32,7 +32,7 @@ class Net::IRC::Message::ModeParser
 			end
 		when :CHANMODES
 			@modes = {}
-			value.split(/,/).each_with_index do |s,kind|
+			value.split(",").each_with_index do |s, kind|
 				s.scan(/./).each {|c|
 					@modes[c.to_sym] = kind
 				}
@@ -41,7 +41,7 @@ class Net::IRC::Message::ModeParser
 	end
 
 	def parse(arg)
-		params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(/\s+/)
+		params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(" ")
 		params.shift
 
 		ret = {

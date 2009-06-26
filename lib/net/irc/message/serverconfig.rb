@@ -7,13 +7,13 @@ class Net::IRC::Message::ServerConfig
 	end
 
 	def set(arg)
-		params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(/\s+/)
+		params = arg.kind_of?(Net::IRC::Message) ? arg.to_a : arg.split(" ")
 
 		params[1..-1].each do |s|
 			case s
-			when /^:?are supported by this server$/
+			when /\A:?are supported by this server\z/
 				# Ignore
-			when /^([^=]+)=(.*)$/
+			when /\A([^=]+)=(.*)\z/
 				key = Regexp.last_match[1].to_sym
 				value = Regexp.last_match[2]
 				@config[key] = value

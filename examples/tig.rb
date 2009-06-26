@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 # vim:fileencoding=UTF-8:
+$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 =begin
 
 # tig.rb
@@ -143,6 +144,10 @@ Use IM instead of any APIs (e.g. post)
 
 ### check_friends_interval=<seconds:3600>
 
+### check_updates_interval=<seconds:86400>
+
+Set 0 to disable checking.
+
 ### old_style_reply
 
 ### tmap_size=<number:10404>
@@ -154,6 +159,8 @@ Use IM instead of any APIs (e.g. post)
 ### bitlify=<username>:<apikey>:<minlength:20>
 
 ### unuify
+
+### shuffled_tmap
 
 ## Extended commands through the CTCP ACTION
 
@@ -216,18 +223,16 @@ Ruby's by cho45
 
 =end
 
-$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
-
-if lp = File.expand_path("lib") and File.directory?(lp) or
-   lp = File.expand_path("lib", "..") and File.directory?(lp)
-	$LOAD_PATH << lp
+if File.directory? "lib"
+	$LOAD_PATH << "lib"
+elsif File.directory? File.expand_path("lib", "..")
+	$LOAD_PATH << File.expand_path("lib", "..")
 end
 
 require "rubygems"
 require "net/irc"
 require "net/https"
 require "uri"
-require "socket"
 require "time"
 require "logger"
 require "yaml"
@@ -280,21 +285,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@groups    = {}
-		@channels  = [] # joined channels (groups)
-		@nicknames = {}
-		@drones    = []
-		@config    = Pathname.new(ENV["HOME"]) + ".tig"
-		@suffix_bl = []
-		#@etags     = {}
-		@consums   = []
-		@limit     = hourly_limit
-		@friends   =
-		@sources   =
-		@im        =
-		@im_thread =
-		@utf7      =
-		@httpproxy = nil
+		@groups        = {}
+		@channels      = [] # joined channels (groups)
+		@nicknames     = {}
+		@drones        = []
+		@config        = Pathname.new(ENV["HOME"]) + ".tig"
+		#@etags         = {}
+		@consums       = []
+		@limit         = hourly_limit
+		@friends       =
+		@sources       =
+		@rsuffix_regex =
+		@im            =
+		@im_thread     =
+		@utf7          =
+		@httpproxy     = nil
 		load_config
 	end
 
@@ -403,12 +408,29 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		return if @opts.jabber
 
-		@timeline  = TypableMap.new(@opts.tmap_size || 10_404)
-		@sources   = @opts.clientspoofing ? fetch_sources : [[api_source, "tig.rb"]]
-		@suffix_bl = fetch_suffix_bl
+		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
+		                           @opts.shuffled_tmap || false)
+		@sources  = @opts.clientspoofing ? fetch_sources : [[api_source, "tig.rb"]]
+
+		update_redundant_suffix
+		@check_updates_thread = Thread.start do
+			sleep @opts.check_updates_interval || 86400
+
+			loop do
+				begin
+					check_updates
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep (@opts.check_updates_interval || 86400) * (90 + rand(21)) * 0.01 # 0.9 ... 1.1 day
+			end
+		end if @opts.check_updates_interval != 0
 
 		@check_timeline_thread = Thread.start do
-			sleep 2 * (@me.friends_count / 100.to_f).ceil
+			sleep 2 * (@me.friends_count / 100.0).ceil
 
 			loop do
 				begin
@@ -465,6 +487,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_timeline_thread.kill rescue nil
 		@check_mentions_thread.kill rescue nil
 		@check_dms_thread.kill      rescue nil
+		@check_updates_thread.kill  rescue nil
 		@im_thread.kill             rescue nil
 		@im.disconnect              rescue nil
 	end
@@ -556,7 +579,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					log "Status updated"
 				end
 			when target.nick? # Direct message
-				ret = api("direct_messages/new", { :user => target, :text => mesg })
+				ret = api("direct_messages/new", { :screen_name => target, :text => mesg })
 				post server_name, NOTICE, @nick, "Your direct message has been sent to #{target}."
 			else
 				post server_name, ERR_NOSUCHNICK, target, "No such nick/channel"
@@ -750,7 +773,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				b = @me.status && @me.status.id == res.id
 				log "Destroyed: #{res.text}"
 			end
-			if b
+			Thread.start do
 				sleep 2
 				@me = api("account/update_profile") #api("account/verify_credentials")
 				if @me.status
@@ -763,7 +786,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 					post @prefix, TOPIC, main_channel, msg
 				end
-			end
+			end if b
 		when "name"
 			name = mesg.split(" ", 2)[1]
 			unless name.nil?
@@ -819,11 +842,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@me = ret.user
 			end
 		when /\Aspoo(o+)?f\z/
-			@sources = args.empty? \
-			         ? @sources.size == 1 || $1 ? fetch_sources($1 && $1.size) \
-			                                    : [[api_source, "tig.rb"]] \
-			         : args.map {|src| [src.upcase != "WEB" ? src : "", "=#{src}"] }
-			log @sources.map {|src| src[1] }.sort.join(", ")
+			Thread.start do
+				@sources = args.empty? \
+				         ? @sources.size == 1 || $1 ? fetch_sources($1 && $1.size) \
+				                                    : [[api_source, "tig.rb"]] \
+				         : args.map {|src| [src.upcase != "WEB" ? src : "", "=#{src}"] }
+				log @sources.map {|src| src[1] }.sort.join(", ")
+			end
 		when "bot", "drone"
 			if args.empty?
 				log "/me bot <NICK> [<NICK>...]"
@@ -1123,11 +1148,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def generate_status_message(mesg)
 		mesg = decode_utf7(mesg)
+		mesg.delete!("\x000\001")
 		mesg.gsub!("&gt;", ">")
 		mesg.gsub!("&lt;", "<")
 		#mesg.gsub!(/\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/, " ")
 		mesg.gsub!(/\r\n|[\r\n\t]/, " ")
-		mesg.sub!(/#{Regexp.union(*@suffix_bl)}\z/, "") unless @suffix_bl.empty?
+		mesg.sub!(@rsuffix_regex, "") if @rsuffix_regex
 		mesg = untinyurl(mesg)
 		mesg.strip
 	end
@@ -1283,6 +1309,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		users
 	end
 
+	def check_updates
+		update_redundant_suffix
+		return unless /\+r(\d+)\z/ === server_version
+
+		rev = $1.to_i
+		uri = URI("http://svn.coderepos.org/share/lang/ruby/net-irc/trunk/examples/tig.rb")
+		@log.debug uri.inspect
+		res = http(uri, 5, 10).request(http_req(:get, uri))
+		return unless /\A"(\d+)/ === res["Etag"] and rev < $1.to_i
+		log "\002New version is available.\017 <http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb?rev=#{$1}&stop_rev=#{rev}>"
+	rescue Errno::ECONNREFUSED, Timeout::Error => e
+		@log.error "Failed to get the latest revision of tig.rb from #{uri.host}: #{e.inspect}"
+	end
+
 	def interval(ratio)
 		now   = Time.now
 		max   = @opts.maxlimit
@@ -1361,9 +1401,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			(?: status(?:es)?/update \z
 			  | direct_messages/new \z
 			  | friendships/create/
-			  | account/ (?: end_session \z
-			               | update_ )
-			  | favou?ri(?:ing|tes)/create/
+			  | account/(?: end_session \z | update_ )
+			  | favou?ri(?: ing | tes )/create/
 			  | notifications/
 			  | blocks/create/ )
 		}x === path
@@ -1381,9 +1420,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		uri.query = query unless query.empty?
 		@log.debug uri.inspect
 
-		header = {}
+		header      = {}
 		credentials = authenticate ? [@real, @pass] : nil
-		req = case
+		req         = case
 			when path.include?("/destroy/")
 				http_req :delete, uri, header, credentials
 			when require_post?(path)
@@ -1394,7 +1433,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		ret = http(uri, 30, 30).request req
 
-		#@etags[path] = ret["ETag"]
+		#@etags[uri.to_s] = ret["ETag"]
 
 		if authenticate
 			hourly_limit = ret["X-RateLimit-Limit"].to_i
@@ -1425,9 +1464,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		case ret
 		when Net::HTTPOK # 200
 			# Avoid Twitter's invalid JSON
-			json = ret.body.strip
-			json.sub!(/"request"\s*:\s*NULL\s*(?=[,}])/) {|m| m.downcase }
-			json.sub!(/\A(?:false|true)\z/) {|m| "[#{m}]" }
+			json = ret.body.strip.sub(/\A(?:false|true)\z/) {|m| "[#{m}]" }
 
 			res = JSON.parse json
 			if res.is_a?(Hash) and res["error"] # and not res["response"]
@@ -1574,6 +1611,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def resolve_http_redirect(uri, limit = 3)
 		return uri if limit.zero? or uri.nil?
+		@log.debug uri.inspect
 
 		req = http_req :head, uri
 		http(uri, 3, 2).request(req) do |res|
@@ -1600,19 +1638,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def decode_utf7(str)
-		begin
-			require "iconv"
-			str.sub!(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
-			#FIXME str = "[utf7]: #{str}" if str =~ /[^a-z0-9\s]/i
-			str
-		rescue LoadError, Iconv::IllegalSequence
-			str
-		end
+		require "iconv"
+		str.sub!(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
+		#FIXME str = "[utf7]: #{str}" if str =~ /[^a-z0-9\s]/i
+		str
+	rescue LoadError, Iconv::IllegalSequence
+		str
+	rescue => e
+		@log.error e
+		str
 	end
 
 	def fetch_sources(n = nil)
 		n    = n.to_i
 		uri  = URI("http://wedata.net/databases/TwitterSources/items.json")
+		@log.debug uri.inspect
 		json = http(uri, 5, 10).request(http_req(:get, uri)).body
 		sources = JSON.parse json
 		sources.map! {|item| [item["data"]["source"], item["name"]] }.push ["", "web"]
@@ -1622,18 +1662,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		sources
 	rescue => e
 		@log.error e.inspect
-		log "An error occured while loading wedata.net."
+		log "An error occured while loading #{uri.host}."
 		@sources || [[api_source, "tig.rb"]]
 	end
 
-	def fetch_suffix_bl(r = [])
+	def update_redundant_suffix
 		uri = URI("http://svn.coderepos.org/share/platform/twitterircgateway/suffixesblacklist.txt")
+		@log.debug uri.inspect
 		source = http(uri, 5, 10).request(http_req(:get, uri)).body
 		source.encoding!("UTF-8") if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
-		source.split
+		@rsuffix_regex = /#{Regexp.union(*source.split)}\z/
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
-		@log.error "Failed to get suffix_bl data from #{uri.host}: #{e.inspect}"
-		""
+		@log.error "Failed to get the redundant suffix blacklist from #{uri.host}: #{e.inspect}"
+		@rsuffix_regex
 	end
 
 	def http_req(method, uri, header = {}, credentials = nil)
@@ -1642,6 +1683,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		types   = { "json" => "application/json", "txt" => "text/plain" }
 		ext     = uri.path[/[^.]+\z/]
 		accepts.unshift types[ext] if types.key?(ext)
+		user_agent = "#{self.class}/#{server_version} (#{File.basename(__FILE__)}; net-irc) Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
 
 		header["User-Agent"]      ||= user_agent
 		header["Accept"]          ||= accepts.join(",")
@@ -1754,11 +1796,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		permalink(status) << ">)."
 	end
 
-	def user_agent
-		"#{self.class}/#{server_version} (#{File.basename(__FILE__)}; Net::IRC::Server)" <<
-		" Ruby/#{RUBY_VERSION} (#{RUBY_PLATFORM})"
-	end
-
 	def permalink(struct)
 		path = struct.is_a?(Status) ? "#{struct.user.screen_name}/statuses/#{struct.id}" \
 		                            : struct.screen_name
@@ -1772,15 +1809,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def initial_message
 		super
 		post server_name, RPL_ISUPPORT, @nick,
-		     "NETWORK=Twitter", "CHANTYPES=#", "NICKLEN=15", "TOPICLEN=420",
-		     "PREFIX=(hov)%@+", "CHANMODES=#{available_channel_modes}",
+		     "NETWORK=Twitter",
+		     "CHANTYPES=#", "CHANNELLEN=50", "CHANMODES=#{available_channel_modes}",
+		     "NICKLEN=15", "TOPICLEN=420", "PREFIX=(hov)%@+",
 		     "are supported by this server"
 	end
 
 	User   = Struct.new(:id, :name, :screen_name, :location, :description, :url,
 	                    :following, :notifications, :protected, :time_zone,
 	                    :utc_offset, :created_at, :friends_count, :followers_count,
-	                    :statuses_count, :favourites_count, :verified, :verified_profile,
+	                    :statuses_count, :favourites_count, :verified,
+	                    :verified_profile,
 	                    :profile_image_url, :profile_background_color, :profile_text_color,
 	                    :profile_link_color, :profile_sidebar_fill_color,
 	                    :profile_sidebar_border_color, :profile_background_image_url,
@@ -1814,10 +1853,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			rya     ryu     ryo
 			gya     gyu     gyo  ja      ju      jo bya     byu     byo
 			pya     pyu     pyo
-		]
+		].freeze
 
-		def initialize(size = nil)
-			@seq  = Roman
+		def initialize(size = nil, shuffle = false)
+			if shuffle
+				@seq = Roman.dup
+				if @seq.respond_to?(:shuffle!)
+					@seq.shuffle!
+				else
+					seq = @seq.dup
+					@seq.map! { seq.slice!(rand(seq.size)) }
+				end
+				@seq.freeze
+			else
+				@seq = Roman
+			end
 			@n    = 0
 			@size = size || @seq.size
 		end
@@ -1932,7 +1982,7 @@ end
 
 class String
 	def ch?
-		/\A[#&+!]/ === self
+		/\A[&#+!][^ \007,]{1,50}\z/ === self
 	end
 
 	def nick? # Twitter screen_name (username)

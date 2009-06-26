@@ -133,6 +133,7 @@ class Net::IRC::Server
 		# Set @user, @real, @host and call initial_message.
 		def on_user(m)
 			@user, @real = m.params[0], m.params[3]
+			@nick ||= @user
 			@host = @socket.peeraddr[2]
 			@prefix = Prefix.new("#{@nick}!#{@user}@#{@host}")
 			initial_message
@@ -169,7 +170,8 @@ class Net::IRC::Server
 		#     post prefix, PRIVMSG, "#channel", "foobar"
 		def post(prefix, command, *params)
 			m = Message.new(prefix, command, params.map {|s|
-				s.gsub(/[\r\n]/, " ")
+				#s.gsub(/\r\n|[\r\n]/, " ")
+				s.tr("\r\n", " ")
 			})
 			@log.debug "SEND: #{m.to_s.chomp}"
 			@socket << m

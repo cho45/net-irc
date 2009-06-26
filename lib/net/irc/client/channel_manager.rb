@@ -7,12 +7,12 @@ module Net::IRC::Client::ChannelManager
 		init_channel(channel)
 
 		@channels.synchronize do
-			m[3].split(/\s+/).each do |u|
-				_, mode, nick = *u.match(/^([@+]?)(.+)/)
+			m[3].split(" ").each do |u|
+				_, mode, nick = *u.match(/\A([@+]?)(.+)/)
 
 				@channels[channel][:users] << nick
 				@channels[channel][:users].uniq!
-				
+
 				op = @server_config.mode_parser.mark_to_op(mode)
 				if op
 					@channels[channel][:modes] << [op, nick]
@@ -64,10 +64,10 @@ module Net::IRC::Client::ChannelManager
 
 	# For managing channel
 	def on_kick(m)
-		users = m[1].split(/,/)
+		users = m[1].split(",")
 
 		@channels.synchronize do
-			m[0].split(/,/).each do |chan|
+			m[0].split(",").each do |chan|
 				init_channel(chan)
 				info = @channels[chan]
 				if info

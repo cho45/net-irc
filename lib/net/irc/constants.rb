@@ -208,7 +208,7 @@ module Net::IRC::Constants # :nodoc:
 	ISON                  = 'ISON'
 end
 
-Net::IRC::COMMANDS = Net::IRC::Constants.constants.inject({}) {|r,i| # :nodoc:
-	r.update(Net::IRC::Constants.const_get(i).to_s => i.to_s)
+Net::IRC::COMMANDS = Net::IRC::Constants.constants.inject({}) {|r, i| # :nodoc:
+	r.update(Net::IRC::Constants.const_get(i).to_s => i.to_s.freeze)
 }
 

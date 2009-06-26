@@ -66,7 +66,7 @@ class Net::IRC::Client
 	# Default RPL_WELCOME callback.
 	# This sets @prefix from the message.
 	def on_rpl_welcome(m)
-		@prefix = Prefix.new(m[1][/\S+$/])
+		@prefix = Prefix.new(m[1][/\S+\z/])
 	end
 
 	# Default RPL_ISUPPORT callback.
@@ -102,8 +102,13 @@ class Net::IRC::Client
 	#     post PRIVMSG, "#channel", "foobar"
 	def post(command, *params)
 		m = Message.new(nil, command, params.map {|s|
-			s.force_encoding("ASCII-8BIT") if s.respond_to? :force_encoding
-			s ? s.gsub(/[\r\n]/, " ") : ""
+			if s
+				s.force_encoding("ASCII-8BIT") if s.respond_to? :force_encoding
+				#s.gsub(/\r\n|[\r\n]/, " ")
+				s.tr("\r\n", " ")
+			else
+				""
+			end
 		})
 
 		@log.debug "SEND: #{m.to_s.chomp}"
