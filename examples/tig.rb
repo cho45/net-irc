@@ -1102,13 +1102,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		api("statuses/friends_timeline", q).reverse_each do |status|
-			@latest_id = status.id
+			id = @latest_id = status.id
+			next if @timeline.any? {|tid, s| s.id == id }
+
 			status.user.status = status
 			user = status.user
 			tid  = @timeline.push(status)
 			tid  = nil unless @opts.tid
 
-			@log.debug [status.id, user.screen_name, status.text].inspect
+			@log.debug [id, user.screen_name, status.text].inspect
 
 			if user.id == @me.id
 				mesg = generate_status_message(status.text)
@@ -1143,7 +1145,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def generate_status_message(mesg)
 		mesg = decode_utf7(mesg)
-		mesg.delete!("\x000\001")
+		mesg.delete!("\000\001")
 		mesg.gsub!("&gt;", ">")
 		mesg.gsub!("&lt;", "<")
 		#mesg.gsub!(/\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/, " ")
