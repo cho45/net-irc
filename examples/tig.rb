@@ -290,7 +290,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@nicknames     = {}
 		@drones        = []
 		@config        = Pathname.new(ENV["HOME"]) + ".tig"
-		#@etags         = {}
+		@etags         = {}
 		@consums       = []
 		@limit         = hourly_limit
 		@friends       =
@@ -527,12 +527,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end unless command.nil?
 
 		mesg = escape_urls(mesg)
-
-		if @opts.bitlify
-			mesg = bitlify(mesg)
-		elsif @opts.unuify
-			mesg = unuify(mesg)
-		end
+		mesg = @opts.unuify ? unuify(mesg) : bitlify(mesg)
 
 		if @utf7
 			mesg = Iconv.iconv("UTF-7", "UTF-8", mesg).join
@@ -1153,8 +1148,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		mesg.gsub!("&lt;", "<")
 		#mesg.gsub!(/\r\n|[\r\n\t\u00A0\u1680\u180E\u2002-\u200D\u202F\u205F\u2060\uFEFF]/, " ")
 		mesg.gsub!(/\r\n|[\r\n\t]/, " ")
-		mesg.sub!(@rsuffix_regex, "") if @rsuffix_regex
 		mesg = untinyurl(mesg)
+		mesg.sub!(@rsuffix_regex, "") if @rsuffix_regex
 		mesg.strip
 	end
 
@@ -1312,12 +1307,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_updates
 		update_redundant_suffix
 		return unless /\+r(\d+)\z/ === server_version
-
 		rev = $1.to_i
 		uri = URI("http://svn.coderepos.org/share/lang/ruby/net-irc/trunk/examples/tig.rb")
 		@log.debug uri.inspect
-		res = http(uri, 5, 10).request(http_req(:get, uri))
-		return unless /\A"(\d+)/ === res["Etag"] and rev < $1.to_i
+		res = http(uri, 5, 10).request(http_req(:head, uri))
+		@etags[uri.to_s] = res["ETag"]
+		return unless not res.is_a?(Net::HTTPNotModified) and
+		              /\A"(\d+)/ === res["ETag"] and rev < $1.to_i
 		log "\002New version is available.\017 <http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb?rev=#{$1}&stop_rev=#{rev}>"
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
 		@log.error "Failed to get the latest revision of tig.rb from #{uri.host}: #{e.inspect}"
@@ -1548,34 +1544,41 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def bitlify(text)
-		login, key, len = @opts.bitlify.split(":", 3)
-		unless login and key
-			raise "bit.ly API key"
-		end
-
+		login, key, len = @opts.bitlify.split(":", 3) if @opts.bitlify
 		len      = (len || 20).to_i
-		longurls = URI.extract(text, %w[http https]).uniq.map! do |url|
+		longurls = URI.extract(text, %w[http https]).uniq.map do |url|
 			URI.rstrip_unpaired_paren(url)
 		end.reject {|url| url.size < len }
-
 		return text if longurls.empty?
 
 		bitly = URI("http://api.bit.ly/shorten")
-		bitly.query = {
-			:version => "2.0.1", :format => "json", :longUrl => longurls,
-		}.to_query_str(";")
-		@log.debug bitly
+		if login and key
+			bitly.path  = "/shorten"
+			bitly.query = {
+				:version => "2.0.1", :format => "json", :longUrl => longurls,
+			}.to_query_str(";")
+			@log.debug bitly
+			req = http_req(:get, bitly, {}, [login, key])
+			res = http(bitly, 5, 10).request(req)
+			res = JSON.parse(res.body)
+			res = res["results"]
 
-		req = http_req(:get, bitly, {}, [login, key])
-		res = http(bitly, 5, 10).request(req)
-		res = JSON.parse(res.body)
-		res = res["results"]
-
-		longurls.each do |longurl|
-			text.gsub!(longurl) do |m|
-				res[m] && res[m]["shortUrl"] || m
+			longurls.each do |longurl|
+				text.gsub!(longurl) do |m|
+					res[m] && res[m]["shortUrl"] || m
+				end
+			end
+		else
+			bitly.path = "/api"
+			longurls.each do |longurl|
+				bitly.query = { :url => longurl }.to_query_str
+				@log.debug bitly
+				req = http_req(:get, bitly)
+				res = http(bitly, 5, 10).request(req)
+				text.gsub!(longurl, res.body)
 			end
 		end
+
 		text
 	rescue => e
 		@log.error e
@@ -1689,7 +1692,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		header["Accept"]          ||= accepts.join(",")
 		header["Accept-Charset"]  ||= "UTF-8,*;q=0.0" if ext != "json"
 		#header["Accept-Language"] ||= @opts.lang # "en-us,en;q=0.9,ja;q=0.5"
-		#header["If-None-Match"]   ||= @etags[uri.to_s] if @etags[uri.to_s]
+		header["If-None-Match"]   ||= @etags[uri.to_s] if @etags[uri.to_s]
 
 		req = case method.to_s.downcase.to_sym
 		when :get
@@ -1737,7 +1740,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.error e
 	end
 
-	def exists_url?(uri, limit = 1)
+	def exist_url?(uri, limit = 1)
 		ret = nil
 		return ret if limit.zero? or uri.nil?
 
@@ -1748,7 +1751,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					true
 				when Net::HTTPRedirection
 					uri = resolve_http_redirect(uri)
-					exists_url?(uri, limit - 1)
+					exist_url?(uri, limit - 1)
 				when Net::HTTPClientError
 					false
 				#when Net::HTTPServerError
@@ -1772,8 +1775,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			# URI::UNSAFE + "#"
 			escaped_str = URI.escape(str, %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]#]})
 			URI.extract(escaped_str, %w[http https]).each do |url|
-				url = URI(URI.rstrip_unpaired_paren(url))
-				if not urls.include?(uri.to_s) and exists_url?(uri)
+				uri = URI(URI.rstrip_unpaired_paren(url))
+				if not urls.include?(uri.to_s) and exist_url?(uri)
 					urls << uri.to_s
 				end
 			end if escaped_str != str
@@ -1781,7 +1784,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		urls.each do |url|
 			unescaped_url = URI.unescape(url)
 			unescaped_url.encoding!("ASCII-8BIT")
-			text.gsub!(unescaped_url) { url }
+			text.gsub!(unescaped_url, url)
 		end
 		log "Percent encoded: #{text}" if text != original_text
 		text
