@@ -191,7 +191,7 @@ Set 0 to disable checking.
 
 	/me reply ID blah, blah...
 
-### utf7
+### utf7 (utf-7)
 
 	/me utf7
 
@@ -239,6 +239,12 @@ require "yaml"
 require "pathname"
 require "ostruct"
 require "json"
+
+begin
+	require "iconv"
+	require "punycode"
+rescue LoadError
+end
 
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
@@ -425,7 +431,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep (@opts.check_updates_interval || 86400) * (90 + rand(21)) * 0.01 # 0.9 ... 1.1 day
+				sleep 0.01 * (90 + rand(21)) *
+				      (@opts.check_updates_interval || 86400) # 0.9 ... 1.1 day
 			end
 		end if @opts.check_updates_interval != 0
 
@@ -526,13 +533,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#when "invite"
 		end unless command.nil?
 
-		mesg = escape_urls(mesg)
+		mesg = escape_http_urls(mesg)
 		mesg = @opts.unuify ? unuify(mesg) : bitlify(mesg)
-
-		if @utf7
-			mesg = Iconv.iconv("UTF-7", "UTF-8", mesg).join
-			mesg = mesg.encoding!("ASCII-8BIT")
-		end
+		mesg = Iconv.iconv("UTF-7", "UTF-8", mesg).join.encoding!("ASCII-8BIT") if @utf7
 
 		ret         = nil
 		retry_count = 3
@@ -615,14 +618,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Call #{screen_name} as #{nickname}"
 			end
 			#save_config
-		when "utf7"
-			begin
-				require "iconv"
-				@utf7 = !@utf7
-				log "UTF-7 mode: #{@utf7 ? 'on' : 'off'}"
-			rescue LoadError => e
+		when /\Autf-?7\z/
+			unless defined? ::Iconv
 				log "Can't load iconv."
+				return
 			end
+			@utf7 = !@utf7
+			log "UTF-7 mode: #{@utf7 ? 'on' : 'off'}"
 		when "list", "ls"
 			if args.empty?
 				log "/me list <NICK> [<NUM>]"
@@ -1308,15 +1310,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_updates
 		update_redundant_suffix
+
 		return unless /\+r(\d+)\z/ === server_version
 		rev = $1.to_i
 		uri = URI("http://svn.coderepos.org/share/lang/ruby/net-irc/trunk/examples/tig.rb")
 		@log.debug uri.inspect
-		res = http(uri, 5, 10).request(http_req(:head, uri))
+		res = http(uri).request(http_req(:head, uri))
 		@etags[uri.to_s] = res["ETag"]
 		return unless not res.is_a?(Net::HTTPNotModified) and
 		              /\A"(\d+)/ === res["ETag"] and rev < $1.to_i
-		log "\002New version is available.\017 <http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb?rev=#{$1}&stop_rev=#{rev}>"
+		uri = URI("http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb")
+		uri.query = { :rev => $1, :stop_rev => rev, :verbose => "on" }.to_query_str(";")
+		log "\002New version is available.\017 <#{uri}>"
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
 		@log.error "Failed to get the latest revision of tig.rb from #{uri.host}: #{e.inspect}"
 	end
@@ -1462,7 +1467,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		case ret
 		when Net::HTTPOK # 200
 			# Avoid Twitter's invalid JSON
-			json = ret.body.strip.sub(/\A(?:false|true)\z/) {|m| "[#{m}]" }
+			json = ret.body.strip.sub(/\A(?:false|true)\z/, "[\\&]")
 
 			res = JSON.parse json
 			if res.is_a?(Hash) and res["error"] # and not res["response"]
@@ -1566,8 +1571,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			res = res["results"]
 
 			longurls.each do |longurl|
-				text.gsub!(longurl) do |m|
-					res[m] && res[m]["shortUrl"] || m
+				text.gsub!(longurl) do
+					res[$&] && res[$&]["shortUrl"] || $&
 				end
 			end
 		else
@@ -1576,7 +1581,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				bitly.query = { :url => longurl }.to_query_str
 				@log.debug bitly
 				req = http_req(:get, bitly)
-				res = http(bitly, 5, 10).request(req)
+				res = http(bitly, 5, 5).request(req)
 				text.gsub!(longurl, res.body)
 			end
 		end
@@ -1643,11 +1648,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def decode_utf7(str)
-		require "iconv"
-		str.sub!(/\A(?:.+ > |.+\z)/) {|m| Iconv.iconv("UTF-8", "UTF-7", m).join }
+		return str unless defined?(::Iconv) and str.include?("+")
+
+		str.sub!(/\A(?:.+ > |.+\z)/) { Iconv.iconv("UTF-8", "UTF-7", $&).join }
 		#FIXME str = "[utf7]: #{str}" if str =~ /[^a-z0-9\s]/i
 		str
-	rescue LoadError, Iconv::IllegalSequence
+	rescue Iconv::IllegalSequence
 		str
 	rescue => e
 		@log.error e
@@ -1658,7 +1664,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		n    = n.to_i
 		uri  = URI("http://wedata.net/databases/TwitterSources/items.json")
 		@log.debug uri.inspect
-		json = http(uri, 5, 10).request(http_req(:get, uri)).body
+		json = http(uri).request(http_req(:get, uri)).body
 		sources = JSON.parse json
 		sources.map! {|item| [item["data"]["source"], item["name"]] }.push ["", "web"]
 		if (1 ... sources.size).include?(n)
@@ -1674,12 +1680,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def update_redundant_suffix
 		uri = URI("http://svn.coderepos.org/share/platform/twitterircgateway/suffixesblacklist.txt")
 		@log.debug uri.inspect
-		source = http(uri, 5, 10).request(http_req(:get, uri)).body
+		res = http(uri).request(http_req(:get, uri))
+		@etags[uri.to_s] = res["ETag"]
+		return if res.is_a? Net::HTTPNotModified
+		source = res.body
 		source.encoding!("UTF-8") if source.respond_to?(:encoding) and source.encoding == Encoding::BINARY
 		@rsuffix_regex = /#{Regexp.union(*source.split)}\z/
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
 		@log.error "Failed to get the redundant suffix blacklist from #{uri.host}: #{e.inspect}"
-		@rsuffix_regex
 	end
 
 	def http_req(method, uri, header = {}, credentials = nil)
@@ -1719,7 +1727,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.error e
 	end
 
-	def http(uri, open_timeout = nil, read_timeout = nil)
+	def http(uri, open_timeout = nil, read_timeout = 60)
 		http = case
 			when @httpproxy
 				Net::HTTP.new(uri.host, uri.port, @httpproxy.address, @httpproxy.port,
@@ -1742,9 +1750,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@log.error e
 	end
 
-	def exist_url?(uri, limit = 1)
+	def exist_uri?(uri, limit = 1)
 		ret = nil
-		return ret if limit.zero? or uri.nil?
+		#raise "Not supported." unless uri.is_a?(URI::HTTP)
+		return ret if limit.zero? or uri.nil? or not uri.is_a?(URI::HTTP)
+		@log.debug uri.inspect
 
 		req = http_req :head, uri
 		http(uri, 3, 2).request(req) do |res|
@@ -1753,7 +1763,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					true
 				when Net::HTTPRedirection
 					uri = resolve_http_redirect(uri)
-					exist_url?(uri, limit - 1)
+					exist_uri?(uri, limit - 1)
 				when Net::HTTPClientError
 					false
 				#when Net::HTTPServerError
@@ -1769,8 +1779,31 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		ret
 	end
 
-	def escape_urls(text)
-		original_text = text.dup
+	def escape_http_urls(text)
+		original_text = text.encoding!("UTF-8").dup
+
+		if defined? ::Punycode
+			# TODO: Nameprep
+			text.gsub!(%r{(https?://)([^\x00-\x2C\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+)}) do
+				domain = $2
+				# Dots:
+				#   * U+002E (full stop)           * U+3002 (ideographic full stop)
+				#   * U+FF0E (fullwidth full stop) * U+FF61 (halfwidth ideographic full stop)
+				# => /[.\u3002\uFF0E\uFF61] # Ruby 1.9 /x
+				$1 + domain.split(/\.|\343\200\202|\357\274\216|\357\275\241/).map do |label|
+					break [domain] if /\A-|[\x00-\x2C\x2E\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]|-\z/ === label
+					next label unless /[^-A-Za-z0-9]/ === label
+					punycode = Punycode.encode(label)
+					break [domain] if punycode.size > 59
+					"xn--#{punycode}"
+				end.join(".")
+			end
+			if text != original_text
+				log "Punycode encoded: #{text}"
+				original_text = text.dup
+			end
+		end
+
 		urls = []
 		(text.split(/[\s<>]+/) + [text]).each do |str|
 			next if /%[0-9A-Fa-f]{2}/ === str
@@ -1778,18 +1811,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			escaped_str = URI.escape(str, %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]#]})
 			URI.extract(escaped_str, %w[http https]).each do |url|
 				uri = URI(URI.rstrip_unpaired_paren(url))
-				if not urls.include?(uri.to_s) and exist_url?(uri)
+				if not urls.include?(uri.to_s) and exist_uri?(uri)
 					urls << uri.to_s
 				end
 			end if escaped_str != str
 		end
 		urls.each do |url|
-			unescaped_url = URI.unescape(url)
-			unescaped_url.encoding!("ASCII-8BIT")
+			unescaped_url = URI.unescape(url).encoding!("UTF-8")
 			text.gsub!(unescaped_url, url)
 		end
 		log "Percent encoded: #{text}" if text != original_text
-		text
+
+		text.encoding!("ASCII-8BIT")
 	rescue => e
 		@log.error e
 		text
@@ -1995,7 +2028,8 @@ class String
 	end
 
 	def encoding! enc
-		force_encoding enc if respond_to? :force_encoding
+		return self unless respond_to? :force_encoding
+		force_encoding enc
 	end
 end
 

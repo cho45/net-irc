@@ -85,8 +85,8 @@ class Net::IRC::Message
 
 	def ctcps
 		messages = []
-		@params[1].gsub!(/\x01(?>[^\x00\x01\r\n]*)\x01/) do |m|
-			messages << ctcp_decode(m)
+		@params[1].gsub!(/\x01(?>[^\x00\x01\r\n]*)\x01/) do
+			messages << ctcp_decode($&)
 			""
 		end
 		messages
