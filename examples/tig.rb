@@ -196,6 +196,10 @@ Set 0 to disable checking.
 
 	/me reply ID blah, blah...
 
+### retweet (rt)
+		
+	/me retweet ID (blah, blah...)
+
 ### utf7 (utf-7)
 
 	/me utf7
@@ -1060,6 +1064,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				return
 			end
 			log "http://twitter.com/#{nick}"
+		when "retweet", "rt"
+			tid = args.first
+			if status = @timeline[tid]
+				if args.size >= 2
+					comment = mesg.split(" ",3)[2] + " "
+				else
+					comment = ""
+				end
+				screen_name = "@#{status.user.screen_name}"
+				rt_message = generate_status_message(status.text)
+				text = "#{comment}RT #{screen_name}: #{rt_message}"
+				ret = api("statuses/update", { :status => text, :source => source })
+				log oops(ret) if ret.truncated
+				log "Status updated (RT to #{@opts.tid % tid}: #{text})"
+				ret.user.status = ret
+				@me = ret.user
+			end
 		end unless command.nil?
 	rescue APIFailed => e
 		log e.inspect
