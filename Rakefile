@@ -22,7 +22,7 @@ DESCRIPTION       = "library for implementing IRC server and client"
 RUBYFORGE_PROJECT = "lowreal"
 HOMEPATH          = "http://#{RUBYFORGE_PROJECT}.rubyforge.org"
 BIN_FILES         = %w(  )
-VERS              = Net::IRC::VERSION
+VERS              = Net::IRC::VERSION.dup
 
 REV = File.read(".svn/entries")[/committed-rev="(d+)"/, 1] rescue nil
 CLEAN.include ['**/.*.sw?', '*.gem', '.config']

@@ -1,3 +1,9 @@
+2009-08-08  SATOH Hiroh <cho45@lowreal.net>
+
+	* [bug]:
+		Fixed to work on ruby1.9.1 (now can send iso-2022-jp)
+	* Released 0.0.8
+
 2009-02-19  SATOH Hiroh <cho45@lowreal.net>
 
 	* [bug]:
