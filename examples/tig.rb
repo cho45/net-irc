@@ -1684,7 +1684,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		urls = []
-		(text.split(/[\s<>]+/) + [text]).each do |str|
+		text.split(/[\s<>]+/).each do |str|
 			next if /%[0-9A-Fa-f]{2}/ === str
 			# URI::UNSAFE + "#"
 			escaped_str = URI.escape(str, %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]#]})
