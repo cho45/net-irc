@@ -12,7 +12,7 @@ Ruby's by cho45
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
+$KCODE = "u" unless defined? ::Encoding # json use this
 
 require "rubygems"
 require "json"

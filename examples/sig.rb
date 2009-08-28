@@ -17,7 +17,7 @@ ServerLog IRC Gateway
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
-$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
+$KCODE = "u" unless defined? ::Encoding
 
 require "rubygems"
 require "net/irc"

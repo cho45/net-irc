@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 # vim:fileencoding=UTF-8:
+$KCODE = "u" unless defined? ::Encoding # json use this
 =begin
 
 # iig.rb
@@ -100,7 +101,6 @@ Ruby's by cho45
 =end
 
 $LOAD_PATH << "lib" << "../lib"
-$KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
 require "rubygems"
 require "net/irc"
