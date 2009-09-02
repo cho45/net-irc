@@ -234,9 +234,10 @@ Ruby's by cho45
 
 =end
 
-if File.directory? "lib"
+case
+when File.directory?("lib")
 	$LOAD_PATH << "lib"
-elsif File.directory? File.expand_path("lib", "..")
+when File.directory?(File.expand_path("lib", ".."))
 	$LOAD_PATH << File.expand_path("lib", "..")
 end
 
@@ -798,12 +799,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 
 		unless m.params[1]
-			if channel.ch?
+			case
+			when channel.ch?
 				mode = "+mt"
 				mode += "i" unless channel.casecmp(main_channel).zero?
 				post server_name, RPL_CHANNELMODEIS, @nick, channel, mode
 				#post server_name, RPL_CREATEONTIME, @nick, channel, 0
-			elsif channel.casecmp(@nick).zero?
+			when channel.casecmp(@nick).zero?
 				post server_name, RPL_UMODEIS, @nick, @nick, "+o"
 			end
 		end
@@ -938,13 +940,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when /\Aratios?\z/
 			unless args.empty?
 				args = args.first.split(":") if args.size == 1
-				if @opts.dm and @opts.mentions and args.size < 3
+				case
+				when @opts.dm && @opts.mentions && args.size < 3
 					log "/me ratios <timeline> <dm> <mentions>"
 					return
-				elsif @opts.dm and args.size < 2
+				when @opts.dm && args.size < 2
 					log "/me ratios <timeline> <dm>"
 					return
-				elsif @opts.mentions and args.size < 2
+				when @opts.mentions && args.size < 2
 					log "/me ratios <timeline> <mentions>"
 					return
 				end
@@ -954,10 +957,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					return
 				end
 				@ratio.timeline = ratios[0]
-				if @opts.dm
+
+				case
+				when @opts.dm
 					@ratio.dm       = ratios[1]
 					@ratio.mentions = ratios[2] if @opts.mentions
-				elsif @opts.mentions
+				when @opts.mentions
 					@ratio.mentions = ratios[1]
 				end
 			end
@@ -1475,7 +1480,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		#@etags[uri.to_s] = ret["ETag"]
 
-		if authenticate
+		case
+		when authenticate
 			hourly_limit = ret["X-RateLimit-Limit"].to_i
 			unless hourly_limit.zero?
 				if @limit != hourly_limit
@@ -1496,7 +1502,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					@consums << expired_on
 				end
 			end
-		elsif ret["X-RateLimit-Remaining"]
+		when ret["X-RateLimit-Remaining"]
 			@limit_remaining_for_ip = ret["X-RateLimit-Remaining"].to_i
 			@log.debug "IP based limit: #{@limit_remaining_for_ip}"
 		end
