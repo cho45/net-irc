@@ -961,7 +961,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					@ratio.mentions = ratios[1]
 				end
 			end
-			log "Intervals: #{@ratio.map {|ratio| interval ratio }.inspect}"
+			log "Intervals: " + @ratio.zip([:timeline, :dm, :mentions]).map {|ratio, name| [name, interval(ratio).round + "sec"] }.inspect
 		when /\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/
 		# destroy, delete, del, remove, rm, miss, oops
 			statuses = []
@@ -1222,10 +1222,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		cmd  = PRIVMSG
 		path = "statuses/#{@opts.with_retweets ? "home" : "friends"}_timeline"
 		q    = { :count => 200 }
-		if @latest_id ||= nil
+		@latest_id ||= nil
+
+		case 
+		when @latest_id
 			q.update(:since_id => @latest_id)
-		elsif not @me.statuses_count.zero? and not @me.friends_count.zero?
-			cmd = NOTICE
+		when is_first_retrieve = !@me.statuses_count.zero? && !@me.friends_count.zero?
+		#	cmd = NOTICE # デバッグするときめんどくさいので
 		end
 
 		api(path, q).reverse_each do |status|
@@ -1339,13 +1342,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def interval(ratio)
 		now   = Time.now
-		max   = @opts.maxlimit
+		max   = @opts.maxlimit || 0
 		limit = 0.98 * @limit # 98% of the rate limit
 		i     = 3600.0        # an hour in seconds
 		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f } +
 		     @consums.delete_if {|t| t < now }.size
 		i /= ratio.to_f
-		i /= (max and 0 < max and max < limit) ? max : limit
+		i /= (0 < max && max < limit) ? max : limit
+		i = 60 * 30 if i > 60 * 30 # 30分以上止まらないように。
+		i
 	rescue => e
 		@log.error e.inspect
 		100
@@ -1356,7 +1361,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		users.each do |user|
 			prefix = prefix(user)
 			post prefix, JOIN, channel
-			params << prefix.nick
+			params << prefix.nick if user.protected
 			next if params.size < MAX_MODE_PARAMS
 
 			post server_name, MODE, channel, "+#{"v" * params.size}", *params
