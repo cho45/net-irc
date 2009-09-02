@@ -261,6 +261,18 @@ end
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
+	@@ctcp_action_commands = []
+
+	class << self
+		def ctcp_action(*commands, &block)
+			name = "+ctcp_action_#{commands.inspect}"
+			define_method(name, block)
+			commands.each do |command|
+				@@ctcp_action_commands << [command, name]
+			end
+		end
+	end
+
 	def server_name
 		"twittergw"
 	end
@@ -818,330 +830,371 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		send(method, target, mesg) if respond_to? method, true
 	end
 
-	def on_ctcp_action(target, mesg)
-		#return unless main_channel.casecmp(target).zero?
-		command, *args = mesg.split(" ")
-		case command.downcase
-		when "call"
-			if args.size < 2
-				log "/me call <Twitter_screen_name> as <IRC_nickname>"
-				return
-			end
-			screen_name = args[0]
-			nickname    = args[2] || args[1] # allow omitting "as"
-			if nickname == "is" and
-			   deleted_nick = @nicknames.delete(screen_name)
-				log %Q{Removed the nickname "#{deleted_nick}" for #{screen_name}}
-			else
-				@nicknames[screen_name] = nickname
-				log "Call #{screen_name} as #{nickname}"
-			end
-			#save_config
-		when /\Autf-?7\z/
-			unless defined? ::Iconv
-				log "Can't load iconv."
-				return
-			end
-			@utf7 = !@utf7
-			log "UTF-7 mode: #{@utf7 ? 'on' : 'off'}"
-		when "list", "ls"
-			if args.empty?
-				log "/me list <NICK> [<NUM>]"
-				return
-			end
-			nick = args.first
-			if not nick.screen_name? or
-			   api("users/username_available", { :username => nick }).valid
-				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
-				return
-			end
-			id           = nick
-			authenticate = false
-			if user = friend(nick)
-				id           = user.id
-				nick         = user.screen_name
-				authenticate = user.protected
-			end
-			unless (1..200).include?(count = args[1].to_i)
-				count = 20
-			end
-			begin
-				res = api("statuses/user_timeline/#{id}",
-				          { :count => count }, { :authenticate => authenticate })
-			rescue APIFailed
-				#log "#{nick} has protected their updates."
-				return
-			end
-			res.reverse_each do |s|
-				message(s, target, nil, nil, NOTICE)
-			end
-		when /\A(un)?fav(?:ou?rite)?(!)?\z/
+	ctcp_action "call" do |target, mesg, command, args|
+		if args.size < 2
+			log "/me call <Twitter_screen_name> as <IRC_nickname>"
+			return
+		end
+		screen_name = args[0]
+		nickname    = args[2] || args[1] # allow omitting "as"
+		if nickname == "is" and
+		   deleted_nick = @nicknames.delete(screen_name)
+			log %Q{Removed the nickname "#{deleted_nick}" for #{screen_name}}
+		else
+			@nicknames[screen_name] = nickname
+			log "Call #{screen_name} as #{nickname}"
+		end
+		#save_config
+	end
+
+	ctcp_action "utf-7", "utf7" do |target, mesg, command, args|
+		unless defined? ::Iconv
+			log "Can't load iconv."
+			return
+		end
+		@utf7 = !@utf7
+		log "UTF-7 mode: #{@utf7 ? 'on' : 'off'}"
+	end
+
+	ctcp_action "list", "ls" do |target, mesg, command, args|
+		if args.empty?
+			log "/me list <NICK> [<NUM>]"
+			return
+		end
+		nick = args.first
+		if not nick.screen_name? or
+		   api("users/username_available", { :username => nick }).valid
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			return
+		end
+		id           = nick
+		authenticate = false
+		if user = friend(nick)
+			id           = user.id
+			nick         = user.screen_name
+			authenticate = user.protected
+		end
+		unless (1..200).include?(count = args[1].to_i)
+			count = 20
+		end
+		begin
+			res = api("statuses/user_timeline/#{id}",
+					  { :count => count }, { :authenticate => authenticate })
+		rescue APIFailed
+			#log "#{nick} has protected their updates."
+			return
+		end
+		res.reverse_each do |s|
+			message(s, target, nil, nil, NOTICE)
+		end
+	end
+
+	ctcp_action %r/\A(un)?fav(?:ou?rite)?(!)?\z/ do |target, mesg, command, args|
 		# fav, unfav, favorite, unfavorite, favourite, unfavourite
-			method   = $1.nil? ? "create" : "destroy"
-			force    = !!$2
-			entered  = $&.capitalize
-			statuses = []
-			if args.empty?
-				if method == "create"
-					if status = @timeline.last
-						statuses << status
-					else
-						#log ""
-						return
-					end
+		method   = command[1].nil? ? "create" : "destroy"
+		force    = !!command[2]
+		entered  = command[0].capitalize
+		statuses = []
+		if args.empty?
+			if method == "create"
+				if status = @timeline.last
+					statuses << status
 				else
-					@favorites ||= api("favorites").reverse
-					if @favorites.empty?
-						log "You've never favorite yet. No favorites to unfavorite."
-						return
-					end
-					statuses.push @favorites.last
+					#log ""
+					return
 				end
 			else
-				args.each do |tid_or_nick|
-					case
-					when status = @timeline[tid_or_nick]
-						statuses.push status
-					when friend = friend(tid_or_nick)
-						if friend.status
-							statuses.push friend.status
-						else
-							log "#{tid_or_nick} has no status."
-						end
+				@favorites ||= api("favorites").reverse
+				if @favorites.empty?
+					log "You've never favorite yet. No favorites to unfavorite."
+					return
+				end
+				statuses.push @favorites.last
+			end
+		else
+			args.each do |tid_or_nick|
+				case
+				when status = @timeline[tid = tid_or_nick]
+					statuses.push status
+				when friend = friend(nick = tid_or_nick)
+					if friend.status
+						statuses.push friend.status
 					else
-						# PRIVMSG: fav nick
-						log "No such ID/NICK #{@opts.tid % tid_or_nick}"
+						log "#{tid_or_nick} has no status."
 					end
-				end
-			end
-			@favorites ||= []
-			statuses.each do |s|
-				if not force and method == "create" and
-				   @favorites.find {|i| i.id == s.id }
-					log "The status is already favorited! <#{permalink(s)}>"
-					next
-				end
-				res = api("favorites/#{method}/#{s.id}")
-				log "#{entered}: #{res.user.screen_name}: #{generate_status_message(res.text)}"
-				if method == "create"
-					@favorites.push res
 				else
-					@favorites.delete_if {|i| i.id == res.id }
+					# PRIVMSG: fav nick
+					log "No such ID/NICK #{@opts.tid % tid_or_nick}"
 				end
 			end
-		when "link", "ln", /\Au(?:rl)?\z/
+		end
+		@favorites ||= []
+		statuses.each do |s|
+			if not force and method == "create" and
+			   @favorites.find {|i| i.id == s.id }
+				log "The status is already favorited! <#{permalink(s)}>"
+				next
+			end
+			res = api("favorites/#{method}/#{s.id}")
+			log "#{entered}: #{res.user.screen_name}: #{generate_status_message(res.text)}"
+			if method == "create"
+				@favorites.push res
+			else
+				@favorites.delete_if {|i| i.id == res.id }
+			end
+		end
+	end
+
+	ctcp_action "link", "ln", /\Au(?:rl)?\z/ do |target, mesg, command, args|
+		args.each do |tid|
+			if status = @timeline[tid]
+				log "#{@opts.tid % tid}: #{permalink(status)}"
+			else
+				log "No such ID #{@opts.tid % tid}"
+			end
+		end
+	end
+
+	ctcp_action %r/\Aratios?\z/ do |target, mesg, command, args|
+		unless args.empty?
+			args = args.first.split(":") if args.size == 1
+			case
+			when @opts.dm && @opts.mentions && args.size < 3
+				log "/me ratios <timeline> <dm> <mentions>"
+				return
+			when @opts.dm && args.size < 2
+				log "/me ratios <timeline> <dm>"
+				return
+			when @opts.mentions && args.size < 2
+				log "/me ratios <timeline> <mentions>"
+				return
+			end
+			ratios = args.map {|ratio| ratio.to_f }
+			if ratios.any? {|ratio| ratio <= 0.0 }
+				log "Ratios must be greater than 0.0 and fractional values are permitted."
+				return
+			end
+			@ratio.timeline = ratios[0]
+
+			case
+			when @opts.dm
+				@ratio.dm       = ratios[1]
+				@ratio.mentions = ratios[2] if @opts.mentions
+			when @opts.mentions
+				@ratio.mentions = ratios[1]
+			end
+		end
+		log "Intervals: " + @ratio.zip([:timeline, :dm, :mentions]).map {|ratio, name| [name,  "#{interval(ratio).round}sec"] }.inspect
+	end
+
+	ctcp_action %r/\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/ do |target, mesg, command, args|
+	# destroy, delete, del, remove, rm, miss, oops
+		statuses = []
+		if args.empty? and @me.status
+			statuses.push @me.status
+		else
 			args.each do |tid|
 				if status = @timeline[tid]
-					log "#{@opts.tid % tid}: #{permalink(status)}"
+					if status.user.id == @me.id
+						statuses.push status
+					else
+						log "The status you specified by the ID #{@opts.tid % tid} is not yours."
+					end
 				else
 					log "No such ID #{@opts.tid % tid}"
 				end
 			end
-		when /\Aratios?\z/
-			unless args.empty?
-				args = args.first.split(":") if args.size == 1
-				case
-				when @opts.dm && @opts.mentions && args.size < 3
-					log "/me ratios <timeline> <dm> <mentions>"
-					return
-				when @opts.dm && args.size < 2
-					log "/me ratios <timeline> <dm>"
-					return
-				when @opts.mentions && args.size < 2
-					log "/me ratios <timeline> <mentions>"
-					return
+		end
+		b = false
+		statuses.each do |st|
+			res = api("statuses/destroy/#{st.id}")
+			@timeline.delete_if {|tid, s| s.id == res.id }
+			b = @me.status && @me.status.id == res.id
+			log "Destroyed: #{res.text}"
+		end
+		Thread.start do
+			sleep 2
+			@me = api("account/update_profile") #api("account/verify_credentials")
+			if @me.status
+				@me.status.user = @me
+				msg = generate_status_message(@me.status.text)
+				@timeline.any? do |tid, s|
+					if s.id == @me.status.id
+						msg << " " << @opts.tid % tid
+					end
 				end
-				ratios = args.map {|ratio| ratio.to_f }
-				if ratios.any? {|ratio| ratio <= 0.0 }
-					log "Ratios must be greater than 0.0 and fractional values are permitted."
-					return
-				end
-				@ratio.timeline = ratios[0]
+				post @prefix, TOPIC, main_channel, msg
+			end
+		end if b
+	end
 
-				case
-				when @opts.dm
-					@ratio.dm       = ratios[1]
-					@ratio.mentions = ratios[2] if @opts.mentions
-				when @opts.mentions
-					@ratio.mentions = ratios[1]
-				end
+	ctcp_action "name" do |target, mesg, command, args|
+		name = mesg.split(" ", 2)[1]
+		unless name.nil?
+			@me = api("account/update_profile", { :name => name })
+			@me.status.user = @me if @me.status
+			log "You are named #{@me.name}."
+		end
+	end
+
+	ctcp_action "email" do |target, mesg, command, args|
+		# FIXME
+		email = args.first
+		unless email.nil?
+			@me = api("account/update_profile", { :email => email })
+			@me.status.user = @me if @me.status
+		end
+	end
+
+	ctcp_action "url" do |target, mesg, command, args|
+		# FIXME
+		url = args.first || ""
+		@me = api("account/update_profile", { :url => url })
+		@me.status.user = @me if @me.status
+	end
+
+	ctcp_action "in", "location" do |target, mesg, command, args|
+		location = mesg.split(" ", 2)[1] || ""
+		@me = api("account/update_profile", { :location => location })
+		@me.status.user = @me if @me.status
+		location = (@me.location and @me.location.empty?) ? "nowhere" : "in #{@me.location}"
+		log "You are #{location} now."
+	end
+
+	ctcp_action %r/\Adesc(?:ription)?\z/ do |target, mesg, command, args|
+		# FIXME
+		description = mesg.split(" ", 2)[1] || ""
+		@me = api("account/update_profile", { :description => description })
+		@me.status.user = @me if @me.status
+	end
+
+	ctcp_action %r/\A(?:mention|re(?:ply)?)\z/ do |target, mesg, command, args|
+		# reply, re, mention
+		tid = args.first
+		if status = @timeline[tid]
+			text = mesg.split(" ", 3)[2]
+			screen_name = "@#{status.user.screen_name}"
+			if text.nil? or not text.include?(screen_name)
+				text = "#{screen_name} #{text}"
 			end
-			log "Intervals: " + @ratio.zip([:timeline, :dm, :mentions]).map {|ratio, name| [name, interval(ratio).round + "sec"] }.inspect
-		when /\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/
-		# destroy, delete, del, remove, rm, miss, oops
-			statuses = []
-			if args.empty? and @me.status
-				statuses.push @me.status
-			else
-				args.each do |tid|
-					if status = @timeline[tid]
-						if status.user.id == @me.id
-							statuses.push status
-						else
-							log "The status you specified by the ID #{@opts.tid % tid} is not yours."
-						end
-					else
-						log "No such ID #{@opts.tid % tid}"
-					end
-				end
-			end
-			b = false
-			statuses.each do |st|
-				res = api("statuses/destroy/#{st.id}")
-				@timeline.delete_if {|tid, s| s.id == res.id }
-				b = @me.status && @me.status.id == res.id
-				log "Destroyed: #{res.text}"
-			end
+			ret = api("statuses/update", { :status => text, :source => source,
+										   :in_reply_to_status_id => status.id })
+			log oops(ret) if ret.truncated
+			msg = generate_status_message(status.text)
+			url = permalink(status)
+			log "Status updated (In reply to #{@opts.tid % tid}: #{msg} <#{url}>)"
+			ret.user.status = ret
+			@me = ret.user
+		end
+	end
+
+	ctcp_action %r/\Aspoo(o+)?f\z/ do |target, mesg, command, args|
+		if args.empty?
 			Thread.start do
-				sleep 2
-				@me = api("account/update_profile") #api("account/verify_credentials")
-				if @me.status
-					@me.status.user = @me
-					msg = generate_status_message(@me.status.text)
-					@timeline.any? do |tid, s|
-						if s.id == @me.status.id
-							msg << " " << @opts.tid % tid
-						end
-					end
-					post @prefix, TOPIC, main_channel, msg
-				end
-			end if b
-		when "name"
-			name = mesg.split(" ", 2)[1]
-			unless name.nil?
-				@me = api("account/update_profile", { :name => name })
-				@me.status.user = @me if @me.status
-				log "You are named #{@me.name}."
+				update_sources(command[1].nil?? 0 : command[1].size)
 			end
-		when "email"
-			# FIXME
-			email = args.first
-			unless email.nil?
-				@me = api("account/update_profile", { :email => email })
-				@me.status.user = @me if @me.status
+			return
+		end
+		names = []
+		@sources = args.map do |arg|
+			names << "=#{arg}"
+			case arg.upcase
+			when "WEB" then ""
+			when "API" then nil
+			else            arg
 			end
-		when "url"
-			# FIXME
-			url = args.first || ""
-			@me = api("account/update_profile", { :url => url })
-			@me.status.user = @me if @me.status
-		when "in", "location"
-			location = mesg.split(" ", 2)[1] || ""
-			@me = api("account/update_profile", { :location => location })
-			@me.status.user = @me if @me.status
-			location = (@me.location and @me.location.empty?) ? "nowhere" : "in #{@me.location}"
-			log "You are #{location} now."
-		when /\Adesc(?:ription)?\z/
-			# FIXME
-			description = mesg.split(" ", 2)[1] || ""
-			@me = api("account/update_profile", { :description => description })
-			@me.status.user = @me if @me.status
-		#when /\Acolou?rs?\z/ # TODO
-		#	# bg, text, link, fill and border
-		#when "image", "img" # TODO
-		#	url = args.first
-		#	# DCC SEND
-		#when "follow"# TODO
-		#when "leave" # TODO
-		when /\A(?:mention|re(?:ply)?)\z/ # reply, re, mention
-			tid = args.first
-			if status = @timeline[tid]
-				text = mesg.split(" ", 3)[2]
-				screen_name = "@#{status.user.screen_name}"
-				if text.nil? or not text.include?(screen_name)
-					text = "#{screen_name} #{text}"
-				end
-				ret = api("statuses/update", { :status => text, :source => source,
-				                               :in_reply_to_status_id => status.id })
-				log oops(ret) if ret.truncated
-				msg = generate_status_message(status.text)
-				url = permalink(status)
-				log "Status updated (In reply to #{@opts.tid % tid}: #{msg} <#{url}>)"
-				ret.user.status = ret
-				@me = ret.user
+		end
+		log(names.inject([]) do |r, name|
+			s = r.join(", ")
+			if s.size < 400
+				r << name
+			else
+				log s
+				[name]
 			end
-		when /\Aspoo(o+)?f\z/
-			if args.empty?
-				Thread.start do
-					update_sources($1.nil? ? 0 : $1.size)
-				end
-				return
+		end.join(", "))
+	end
+
+	ctcp_action "bot", "drone" do |target, mesg, command, args|
+		if args.empty?
+			log "/me bot <NICK> [<NICK>...]"
+			return
+		end
+		args.each do |bot|
+			user = friend(bot)
+			unless user
+				post server_name, ERR_NOSUCHNICK, bot, "No such nick/channel"
+				next
 			end
-			names = []
-			@sources = args.map do |arg|
-				names << "=#{arg}"
-				case arg.upcase
-				when "WEB" then ""
-				when "API" then nil
-				else            arg
-				end
+			if @drones.delete(user.id)
+				mode = "-#{mode}"
+				log "#{bot} is no longer a bot."
+			else
+				@drones << user.id
+				mode = "+#{mode}"
+				log "Marks #{bot} as a bot."
 			end
-			log(names.inject([]) do |r, name|
-				s = r.join(", ")
-				if s.size < 400
-					r << name
-				else
-					log s
-					[name]
-				end
-			end.join(", "))
-		when "bot", "drone"
-			if args.empty?
-				log "/me bot <NICK> [<NICK>...]"
-				return
+		end
+		save_config
+
+	end
+
+	ctcp_action "home", "h" do |target, mesg, command, args|
+		if args.empty?
+			log "/me home <NICK>"
+			return
+		end
+		nick = args.first
+		if not nick.screen_name? or
+		   api("users/username_available", { :username => nick }).valid
+			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
+			return
+		end
+		log "http://twitter.com/#{nick}"
+	end
+
+	ctcp_action "retweet", "rt" do |target, mesg, command, args|
+		if args.empty?
+			log "/me #{command} <ID> blah blah"
+			return
+		end
+		tid = args.first
+		if status = @timeline[tid]
+			if args.size >= 2
+				comment = mesg.split(" ", 3)[2] + " "
+			else
+				comment = ""
 			end
-			args.each do |bot|
-				user = friend(bot)
-				unless user
-					post server_name, ERR_NOSUCHNICK, bot, "No such nick/channel"
-					next
-				end
-				if @drones.delete(user.id)
-					mode = "-#{mode}"
-					log "#{bot} is no longer a bot."
-				else
-					@drones << user.id
-					mode = "+#{mode}"
-					log "Marks #{bot} as a bot."
-				end
+			screen_name = "@#{status.user.screen_name}"
+			rt_message = generate_status_message(status.text)
+			text = "#{comment}RT #{screen_name}: #{rt_message}"
+			ret = api("statuses/update", { :status => text, :source => source })
+			log oops(ret) if ret.truncated
+			log "Status updated (RT to #{@opts.tid % tid}: #{text})"
+			ret.user.status = ret
+			@me = ret.user
+		end
+	end
+
+	def on_ctcp_action(target, mesg)
+		#return unless main_channel.casecmp(target).zero?
+		command, *args = mesg.split(" ")
+		command.downcase!
+
+		@@ctcp_action_commands.each do |define, name|
+			if define === command
+				send(name, target, mesg, Regexp.last_match || command, args)
+				break
 			end
-			save_config
-		when "home", "h"
-			if args.empty?
-				log "/me home <NICK>"
-				return
-			end
-			nick = args.first
-			if not nick.screen_name? or
-			   api("users/username_available", { :username => nick }).valid
-				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
-				return
-			end
-			log "http://twitter.com/#{nick}"
-		when "retweet", "rt"
-			if args.empty?
-				log "/me #{command} <ID> blah blah"
-				return
-			end
-			tid = args.first
-			if status = @timeline[tid]
-				if args.size >= 2
-					comment = mesg.split(" ", 3)[2] + " "
-				else
-					comment = ""
-				end
-				screen_name = "@#{status.user.screen_name}"
-				rt_message = generate_status_message(status.text)
-				text = "#{comment}RT #{screen_name}: #{rt_message}"
-				ret = api("statuses/update", { :status => text, :source => source })
-				log oops(ret) if ret.truncated
-				log "Status updated (RT to #{@opts.tid % tid}: #{text})"
-				ret.user.status = ret
-				@me = ret.user
-			end
-		end unless command.nil?
+		end
+
 	rescue APIFailed => e
 		log e.inspect
+	rescue Exception => e
+		log e.inspect
+		e.backtrace.each do |l|
+			@log.error "\t#{l}"
+		end
 	end
 
 	def on_ctcp_clientinfo(target, msg)
