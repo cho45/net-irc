@@ -889,7 +889,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	ctcp_action %r/\A(un)?fav(?:ou?rite)?(!)?\z/ do |target, mesg, command, args|
+	ctcp_action "fav", %r/\A(un)?fav(?:ou?rite)?(!)?\z/ do |target, mesg, command, args|
 		# fav, unfav, favorite, unfavorite, favourite, unfavourite
 		method   = command[1].nil? ? "create" : "destroy"
 		force    = !!command[2]
@@ -955,7 +955,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	ctcp_action %r/\Aratios?\z/ do |target, mesg, command, args|
+	ctcp_action "ratio", "ratios" do |target, mesg, command, args|
 		unless args.empty?
 			args = args.first.split(":") if args.size == 1
 			case
@@ -987,7 +987,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log "Intervals: " + @ratio.zip([:timeline, :dm, :mentions]).map {|ratio, name| [name,  "#{interval(ratio).round}sec"] }.inspect
 	end
 
-	ctcp_action %r/\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/ do |target, mesg, command, args|
+	ctcp_action "rm", %r/\A(?:de(?:stroy|l(?:ete)?)|miss|oops|r(?:emove|m))\z/ do |target, mesg, command, args|
 	# destroy, delete, del, remove, rm, miss, oops
 		statuses = []
 		if args.empty? and @me.status
@@ -1179,12 +1179,25 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_ctcp_action(target, mesg)
 		#return unless main_channel.casecmp(target).zero?
 		command, *args = mesg.split(" ")
-		command.downcase!
+		if command
+			command.downcase!
 
-		@@ctcp_action_commands.each do |define, name|
-			if define === command
-				send(name, target, mesg, Regexp.last_match || command, args)
-				break
+			@@ctcp_action_commands.each do |define, name|
+				if define === command
+					send(name, target, mesg, Regexp.last_match || command, args)
+					break
+				end
+			end
+		else
+			commands = @@ctcp_action_commands.map {|define, name|
+				define
+			}.select {|define|
+				define.is_a? String
+			}
+
+			log "[tig.rb] CTCP ACTION COMMANDS:"
+			commands.each_slice(5) do |c|
+				log c.join(" ")
 			end
 		end
 
