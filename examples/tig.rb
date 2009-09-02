@@ -322,7 +322,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@channels      = [] # joined channels (groups)
 		@nicknames     = {}
 		@drones        = []
-		@config        = Pathname.new(ENV["HOME"]) + ".tig"
+		@config        = Pathname.new(ENV["HOME"]) + ".tig" ### TODO マルチユーザに対応してない
 		@etags         = {}
 		@consums       = []
 		@limit         = hourly_limit
@@ -830,6 +830,40 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		send(method, target, mesg) if respond_to? method, true
 	end
 
+	def on_ctcp_action(target, mesg)
+		#return unless main_channel.casecmp(target).zero?
+		command, *args = mesg.split(" ")
+		if command
+			command.downcase!
+
+			@@ctcp_action_commands.each do |define, name|
+				if define === command
+					send(name, target, mesg, Regexp.last_match || command, args)
+					break
+				end
+			end
+		else
+			commands = @@ctcp_action_commands.map {|define, name|
+				define
+			}.select {|define|
+				define.is_a? String
+			}
+
+			log "[tig.rb] CTCP ACTION COMMANDS:"
+			commands.each_slice(5) do |c|
+				log c.join(" ")
+			end
+		end
+
+	rescue APIFailed => e
+		log e.inspect
+	rescue Exception => e
+		log e.inspect
+		e.backtrace.each do |l|
+			@log.error "\t#{l}"
+		end
+	end
+
 	ctcp_action "call" do |target, mesg, command, args|
 		if args.size < 2
 			log "/me call <Twitter_screen_name> as <IRC_nickname>"
@@ -1173,40 +1207,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			log "Status updated (RT to #{@opts.tid % tid}: #{text})"
 			ret.user.status = ret
 			@me = ret.user
-		end
-	end
-
-	def on_ctcp_action(target, mesg)
-		#return unless main_channel.casecmp(target).zero?
-		command, *args = mesg.split(" ")
-		if command
-			command.downcase!
-
-			@@ctcp_action_commands.each do |define, name|
-				if define === command
-					send(name, target, mesg, Regexp.last_match || command, args)
-					break
-				end
-			end
-		else
-			commands = @@ctcp_action_commands.map {|define, name|
-				define
-			}.select {|define|
-				define.is_a? String
-			}
-
-			log "[tig.rb] CTCP ACTION COMMANDS:"
-			commands.each_slice(5) do |c|
-				log c.join(" ")
-			end
-		end
-
-	rescue APIFailed => e
-		log e.inspect
-	rescue Exception => e
-		log e.inspect
-		e.backtrace.each do |l|
-			@log.error "\t#{l}"
 		end
 	end
 
