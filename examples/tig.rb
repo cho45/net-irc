@@ -453,7 +453,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		update_redundant_suffix
 		@check_updates_thread = Thread.start do
-			sleep @opts.check_updates_interval || 86400
+			sleep 30
 
 			loop do
 				begin
@@ -467,7 +467,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				sleep 0.01 * (90 + rand(21)) *
 				      (@opts.check_updates_interval || 86400) # 0.9 ... 1.1 day
 			end
-		end if @opts.check_updates_interval != 0
+
+			sleep @opts.check_updates_interval || 86400
+		end
 
 		@check_timeline_thread = Thread.start do
 			sleep 2 * (@me.friends_count / 100.0).ceil
