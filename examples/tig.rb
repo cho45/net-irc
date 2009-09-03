@@ -1302,6 +1302,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			q.update(:since_id => @latest_id)
 		when is_first_retrieve = !@me.statuses_count.zero? && !@me.friends_count.zero?
 		#	cmd = NOTICE # デバッグするときめんどくさいので
+			q.update(:count => 20)
 		end
 
 		api(path, q).reverse_each do |status|
@@ -1529,7 +1530,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		uri.path += path
 		uri.path += ".json" if path != "users/username_available"
 		uri.query = query unless query.empty?
-		@log.debug uri.inspect
 
 		header      = {}
 		credentials = authenticate ? [@real, @pass] : nil
@@ -1544,6 +1544,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				http_req :get,    uri, header, credentials
 		end
 
+		@log.debug [req.method, uri.to_s]
 		ret = http(uri, 30, 30).request req
 
 		#@etags[uri.to_s] = ret["ETag"]
