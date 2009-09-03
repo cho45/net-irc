@@ -782,6 +782,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return if not channel.casecmp(main_channel).zero? or @me.status.nil?
 
+		return if not @opts.mesautofix
 		begin
 			require "levenshtein"
 			topic    = m.params[1]
@@ -799,7 +800,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if distance < 0.5
 				deleted = api("statuses/destroy/#{previous.id}")
 				@timeline.delete_if {|tid, s| s.id == deleted.id }
-				log "Fixed: #{status.text}"
+				log "Similar update in previous. Conclude that it has error."
+				log "And overwrite previous as new status: #{status.text}"
 			else
 				log "Status updated"
 			end
