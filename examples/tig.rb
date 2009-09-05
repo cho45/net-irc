@@ -1598,8 +1598,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPBadRequest # 400: exceeded the rate limitation
 			if ret.key?("X-RateLimit-Reset")
 				s = ret["X-RateLimit-Reset"].to_i - Time.now.to_i
-				log "RateLimit: #{(s / 60.0).ceil} min remaining to get timeline" if s > 0
-				sleep (s > 60 * 10) ? 60 * 10 : s # 10 分に一回はとってくるように
+				if s > 0
+					log "RateLimit: #{(s / 60.0).ceil} min remaining to get timeline"
+					sleep (s > 60 * 10) ? 60 * 10 : s # 10 分に一回はとってくるように
+				end
 			end
 			raise APIFailed, "#{ret.code}: #{ret.message}"
 		when Net::HTTPUnauthorized # 401
