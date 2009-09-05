@@ -927,7 +927,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	ctcp_action "fav", %r/\A(un)?fav(?:ou?rite)?(!)?\z/ do |target, mesg, command, args|
+	ctcp_action %r/\A(un)?fav(?:ou?rite)?(!)?\z/ do |target, mesg, command, args|
 		# fav, unfav, favorite, unfavorite, favourite, unfavourite
 		method   = command[1].nil? ? "create" : "destroy"
 		force    = !!command[2]
@@ -1598,8 +1598,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when Net::HTTPBadRequest # 400: exceeded the rate limitation
 			if ret.key?("X-RateLimit-Reset")
 				s = ret["X-RateLimit-Reset"].to_i - Time.now.to_i
-				log "RateLimit: #{(s / 60.0).ceil} min remaining to get timeline"
-				sleep s
+				log "RateLimit: #{(s / 60.0).ceil} min remaining to get timeline" if s > 0
+				sleep (s > 60 * 10) ? 60 * 10 : s # 10 分に一回はとってくるように
 			end
 			raise APIFailed, "#{ret.code}: #{ret.message}"
 		when Net::HTTPUnauthorized # 401
