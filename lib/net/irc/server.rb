@@ -1,6 +1,7 @@
 class Net::IRC::Server
 	# Server global state for accessing Server::Session
 	attr_accessor :state
+	attr_accessor :sessions
 
 	def initialize(host, port, session_class, opts={})
 		@host          = host
