@@ -429,7 +429,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 					end
 
 					if @opts.key?("metadata")
-						post "metadata", PRIVMSG, "metadata",  JSON.generate({ "uri" => (api_base + "/#{s["user"]["screen_name"]}/#{s["id"]}").to_s })
+						post "metadata", NOTICE, channel,  JSON.generate({ "uri" => (api_base + "/#{s["user"]["screen_name"]}/#{s["id"]}").to_s })
 					end
 				end
 			rescue => e
