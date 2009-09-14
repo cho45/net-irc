@@ -885,6 +885,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		#save_config
 	end
 
+	ctcp_action "debug" do |target, mesg, command, args|
+		code = args.join(" ")
+		begin
+			log instance_eval(code).inspect
+		rescue Exception => e
+			log e.inspect
+		end
+	end
+
 	ctcp_action "utf-7", "utf7" do |target, mesg, command, args|
 		unless defined? ::Iconv
 			log "Can't load iconv."

@@ -316,7 +316,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 			tid = args[0]
 			st  = @tmap[tid]
 			if st
-				st["link"] = (api_base + "/#{st["user"]["screen_name"]}/statuses/#{st["id"]}").to_s unless st["link"]
+				st["link"] = (api_base + "/#{st["user"]["screen_name"]}/#{st["id"]}").to_s unless st["link"]
 				post nil, NOTICE, main_channel, st["link"]
 			else
 				post nil, NOTICE, main_channel, "No such id #{tid}"
@@ -343,6 +343,7 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_join(m)
+		return ### なんかしらんけど何度も入ってしまってうざいので……
 		channels = m.params[0].split(/\s*,\s*/)
 		channels.each do |channel|
 			next if channel == main_channel
@@ -426,6 +427,10 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 					else
 						message(nick, channel, "%s" % [mesg, tid])
 					end
+				end
+
+				if @opts.key?("metadata")
+					post nil, PRIVMSG, "#{@nick}@metadata",  JSON.generate({ "uri" => (api_base + "/#{s["user"]["screen_name"]}/#{s["id"]}").to_s })
 				end
 			rescue => e
 				@log.debug "Error: %p" % e
