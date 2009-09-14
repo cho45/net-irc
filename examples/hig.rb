@@ -427,10 +427,10 @@ class HaikuIrcGateway < Net::IRC::Server::Session
 					else
 						message(nick, channel, "%s" % [mesg, tid])
 					end
-				end
 
-				if @opts.key?("metadata")
-					post nil, PRIVMSG, "#{@nick}@metadata",  JSON.generate({ "uri" => (api_base + "/#{s["user"]["screen_name"]}/#{s["id"]}").to_s })
+					if @opts.key?("metadata")
+						post nil, PRIVMSG, "#{@nick}@metadata",  JSON.generate({ "uri" => (api_base + "/#{s["user"]["screen_name"]}/#{s["id"]}").to_s })
+					end
 				end
 			rescue => e
 				@log.debug "Error: %p" % e
