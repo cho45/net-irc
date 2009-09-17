@@ -258,6 +258,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 			if target =~ /^#(.+)/
 				channel = Regexp.last_match[1]
 				reply   = message[/\s+>(.+)$/, 1]
+				reply   = reply.force_encoding("UTF-8") if reply && reply.respond_to?(:force_encoding)
 				if @utf7
 					message = Iconv.iconv("UTF-7", "UTF-8", message).join
 					message = message.force_encoding("ASCII-8BIT") if message.respond_to?(:force_encoding)
