@@ -48,7 +48,10 @@ class HatenaStarStream < Net::IRC::Server::Session
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 
 		@real, *@opts = @opts.name || @real.split(/\s+/)
-		@opts ||= []
+		@opts = @opts.inject({}) {|r,i|
+			key, value = i.split("=")
+			r.update(key => value)
+		}
 
 		start_observer
 	end
@@ -115,7 +118,10 @@ class HatenaStarStream < Net::IRC::Server::Session
 							end
 						}
 
-						post server_name, NOTICE, main_channel, "↓ #{entry} #{title(entry)}" if s.length > 0
+						post server_name, NOTICE, main_channel, "#{entry} #{title(entry)}" if s.length > 0
+						if @opts.key?("metadata")
+							post "metadata", NOTICE, main_channel,  JSON.generate({ "uri" => entry })
+						end
 
 						s.each do |star|
 							post server_name, NOTICE, main_channel, "id:%s \x03%d%s%s\x030 %s" % [
