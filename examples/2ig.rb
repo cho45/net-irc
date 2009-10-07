@@ -77,7 +77,31 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		m.ctcps.each {|ctcp| on_ctcp(target, ctcp) } if m.ctcp?
 	end
 
-	def on_ctcp(target, ctcp)
+	def on_ctcp(target, mesg)
+		type, mesg = mesg.split(" ", 2)
+		method = "on_ctcp_#{type.downcase}".to_sym
+		send(method, target, mesg) if respond_to? method, true
+	end
+
+	def on_ctcp_action(target, mesg)
+		command, *args = mesg.split(" ")
+		command.downcase!
+
+		case command
+		when 'next'
+			if @channels.key?(target)
+				info = @channels[target]
+				post server_name, NOTICE, target, "Guessing... #{info[:dat].subject}"
+				info[:dat].guess_next_thread.first(3).each do |t|
+					post server_name, NOTICE, target, "#{t[:uri]} #{t[:subject]}"
+				end
+			end
+		end
+	rescue Exception => e
+		@log.error e.inspect
+		e.backtrace.each do |l|
+			@log.error "\t#{l}"
+		end
 	end
 
 	def on_topic(m)
@@ -125,6 +149,16 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 					info[:dat].retrieve.last(100).each do |line|
 						priv_line channel, line
 					end
+
+					if info[:dat].length >= 1000
+						post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
+						info[:dat].guess_next_thread.first(3).each do |t|
+							post server_name, NOTICE, channel, "#{t[:uri]} #{t[:subject]}"
+						end
+						break
+					end
+				rescue UnknownThread
+					# pass
 				rescue Exception => e
 					@log.error "Error: #{e.inspect}"
 					e.backtrace.each do |l|
@@ -149,6 +183,8 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 
 
 	class ThreadData
+		class UnknownThread < StandardError; end
+
 		attr_accessor :uri
 		attr_accessor :last_modified, :size
 
@@ -171,8 +207,13 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 			@dat = []
 		end
 
+		def length
+			@dat.length + 1
+		end
+
 		def subject
-			self[0].opts
+			retrieve(true) unless self[1]
+			self[1].opts || ""
 		end
 
 		def [](n)
@@ -237,10 +278,77 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				[]
 			when 302 # dat 落ち
 				p ['302', res['Location']]
-				[]
+				raise UnknownThread
 			else
 				p ['Unknown Status:', res.code]
 				[]
+			end
+		end
+
+		def guess_next_thread
+			res = Net::HTTP.start(@uri.host, @uri.port) do |http|
+				req = Net::HTTP::Get.new('/%s/subject.txt' % @board)
+				req['User-Agent']        = 'Monazilla/1.00 (2ig.rb/0.0e)'
+				http.request(req)
+			end
+
+			current_thread_rev = (self.subject[/\d+/] || 0).to_i
+			current = self.subject.scan(/./u)
+
+			body = NKF.nkf('-w', res.body)
+			threads = body.split(/\n/).map {|l|
+				dat, rest = *l.split(/<>/)
+				dat.sub!(/\.dat$/, "")
+
+				subject, n = */(.+?) \((\d+)\)/.match(rest).captures
+
+				thread_rev = subject[/\d+/].to_i
+				distance = (subject == self.subject) ? Float::MAX : levenshtein(subject.scan(/./u), current)
+				distance -= 100 if current_thread_rev + 1 == thread_rev
+				{
+					:uri      => "http://#{@uri.host}/test/read.cgi/#{@board}/#{dat}/",
+					:dat      => dat,
+					:subject  => subject,
+					:distance => distance
+				}
+			}.sort_by {|o|
+				o[:distance]
+			}
+
+			threads
+		end
+
+		def levenshtein(a, b)
+			case
+			when a.empty?
+				b.length
+			when b.empty?
+				a.length
+			else
+				d = Array.new(a.length + 1) { |s|
+					Array.new(b.length + 1, 0)
+				}
+
+				(0..a.length).each do |i|
+					d[i][0] = i
+				end
+
+				(0..b.length).each do |j|
+					d[0][j] = j
+				end
+
+				(1..a.length).each do |i|
+					(1..b.length).each do |j|
+						cost = (a[i - 1] == b[j - 1]) ? 0 : 1
+						d[i][j] = [
+							d[i-1][j  ] + 1,
+							d[i  ][j-1] + 1,
+							d[i-1][j-1] + cost
+						].min
+					end
+				end
+
+				d[a.length][b.length]
 			end
 		end
 	end
