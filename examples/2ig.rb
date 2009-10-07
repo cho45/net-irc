@@ -144,7 +144,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		Line = Struct.new(:n, :name, :mail, :misc, :body, :opts, :id) do
 			def aa?
 				body = self.body
-				return false unless body[/\n/]
+				return false if body.count("\n") < 3
 
 				significants = body.scan(/[>\n0-9a-z０-９A-Zａ-ｚＡ-Ｚぁ-んァ-ン一-龠]/u).size.to_f
 				body_length  = body.scan(/./u).size
