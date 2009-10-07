@@ -278,9 +278,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def server_version
-		rev = %q$Revision$.split[1]
-		rev &&= "+r#{rev}"
-		"0.0.0#{rev}"
+		head = `git rev-parse HEAD 2>/dev/null`
+		head.empty?? "unknown" : head
 	end
 
 	def available_user_modes
@@ -457,6 +456,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 			loop do
 				begin
+					@log.info "check_updates"
 					check_updates
 				rescue Exception => e
 					@log.error e.inspect
@@ -1410,17 +1410,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_updates
 		update_redundant_suffix
 
-		return unless /\+r(\d+)\z/ === server_version
-		rev = $1.to_i
-		uri = URI("http://svn.coderepos.org/share/lang/ruby/net-irc/trunk/examples/tig.rb")
+		uri = URI("http://github.com/api/v1/json/cho45/net-irc/commits/master")
 		@log.debug uri.inspect
-		res = http(uri).request(http_req(:head, uri))
-		@etags[uri.to_s] = res["ETag"]
-		return unless not res.is_a?(Net::HTTPNotModified) and
-		              /\A"(\d+)/ === res["ETag"] and rev < $1.to_i
-		uri = URI("http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb")
-		uri.query = { :rev => $1, :stop_rev => rev, :verbose => "on" }.to_query_str(";")
-		log "\002New version is available.\017 <#{uri}>"
+		res = http(uri).request(http_req(:get, uri))
+
+		latest = JSON.parse(res.body)['commits'][0]['id']
+		unless server_version == latest
+			log "\002New version is available.\017 run 'git pull'."
+		end
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
 		@log.error "Failed to get the latest revision of tig.rb from #{uri.host}: #{e.inspect}"
 	end
