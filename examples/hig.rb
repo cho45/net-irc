@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# vim:fileencoding=UTF-8:
+# vim:encoding=UTF-8:
 =begin
 # hig.rb
 
