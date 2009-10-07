@@ -66,7 +66,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 	def on_part(m)
 		channel = m.params[0]
 		if @channels.key?(channel)
-			info = @channel.delete(channel)
+			info = @channels.delete(channel)
 			info[:observer].kill if info[:observer]
 			post @prefix, PART, channel
 		end
