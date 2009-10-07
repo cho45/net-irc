@@ -122,7 +122,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				begin
 					sleep info[:interval]
 					@log.debug "retrieving (interval %d) %s..." % [info[:interval], info[:dat].uri]
-					info[:dat].retrieve.each do |line|
+					info[:dat].retrieve.last(100).each do |line|
 						priv_line channel, line
 					end
 				rescue Exception => e
