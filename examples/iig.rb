@@ -241,7 +241,7 @@ class IdenticaIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
-		return m[1].ctcps.each {|ctcp| on_ctcp(m[0], ctcp) } if m.ctcp?
+		return m.ctcps.each {|ctcp| on_ctcp(m[0], ctcp) } if m.ctcp?
 		retry_count = 3
 		ret = nil
 		target, message = *m.params
