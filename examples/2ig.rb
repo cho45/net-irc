@@ -85,6 +85,12 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		p m.params
 		if @channels.key?(channel)
 			info = @channels[channel]
+
+			unless topic
+				post nil, '332', channel, info[:topic]
+				return
+			end
+
 			uri, interval = *topic.split(/\s/)
 			interval = interval.to_i
 
