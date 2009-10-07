@@ -537,7 +537,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def on_privmsg(m)
 		target, mesg = *m.params
 
-		m.ctcps.each {|ctcp| on_ctcp target, ctcp } if m.ctcp?
+		m.ctcps.each {|ctcp| on_ctcp(target, ctcp) } if m.ctcp?
 
 		return if mesg.empty?
 		return on_ctcp_action(target, mesg) if mesg.sub!(/\A +/, "") #and @opts.direct_action
