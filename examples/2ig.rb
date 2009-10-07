@@ -88,17 +88,19 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 			uri, interval = *topic.split(/\s/)
 			interval = interval.to_i
 
+			post @prefix, TOPIC, channel, topic
+
 			case
 			when !info[:dat], uri != info[:dat].uri
+				post @prefix, NOTICE, channel, "Thread URL has been changed."
 				info[:dat] = ThreadData.new(uri)
 				create_observer(channel)
 			when info[:interval] != interval
+				post @prefix, NOTICE, channel, "Interval has been changed."
 				create_observer(channel)
 			end
 			info[:topic]    = topic
 			info[:interval] = interval > 0 ? interval : 90
-
-			post @prefix, TOPIC, channel, topic
 		end
 	end
 
@@ -110,13 +112,12 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		info[:observer] = Thread.start(info, channel) do |info, channel|
 			Thread.pass
 
-			# info[:dat].retrieve(true) # 捨てる
 			loop do
 				begin
 					sleep info[:interval]
 					@log.debug "retrieving (interval %d) %s..." % [info[:interval], info[:dat].uri]
 					info[:dat].retrieve.each do |line|
-						post "%d{%s}" % [line.n, line.id], PRIVMSG, channel, line.aa?? encode_aa(line.body) : line.body
+						priv_line channel, line
 					end
 				rescue Exception => e
 					@log.error "Error: #{e.inspect}"
@@ -126,6 +127,10 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		end
+	end
+
+	def priv_line(channel, line)
+		post "%d{%s}" % [line.n, line.id], PRIVMSG, channel, line.aa?? encode_aa(line.body) : line.body
 	end
 
 	def encode_aa(aa)
@@ -144,7 +149,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		Line = Struct.new(:n, :name, :mail, :misc, :body, :opts, :id) do
 			def aa?
 				body = self.body
-				return false unless body[/\n/]
+				return false if body.count("\n") < 3
 
 				significants = body.scan(/[>\n0-9a-z０-９A-Zａ-ｚＡ-Ｚぁ-んァ-ン一-龠]/u).size.to_f
 				body_length  = body.scan(/./u).size
