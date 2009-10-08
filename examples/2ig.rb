@@ -151,6 +151,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 					end
 
 					if info[:dat].length >= 1000
+						post server_name, NOTICE, channel, "Current Thread: #{info[:dat].subject}"
 						post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
 						info[:dat].guess_next_thread.first(3).each do |t|
 							post server_name, NOTICE, channel, "#{t[:uri]} #{t[:subject]}"
@@ -208,7 +209,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		end
 
 		def length
-			@dat.length + 1
+			@dat.length
 		end
 
 		def subject
