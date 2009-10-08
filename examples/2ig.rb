@@ -189,7 +189,6 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		Net::HTTP.get(uri.host, uri.request_uri, uri.port)
 	end
 
-
 	class ThreadData
 		class UnknownThread < StandardError; end
 
@@ -238,6 +237,10 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 			}
 
 			Line.new(n, name, mail, misc, body, opts, id)
+		end
+
+		def dat
+			@num
 		end
 
 		def retrieve(force=false)
@@ -322,8 +325,10 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				subject, n = */(.+?) \((\d+)\)/.match(rest).captures
 
 				thread_rev = subject[/\d+/].to_i
-				distance = (subject == self.subject) ? Float::MAX : levenshtein(subject.scan(/./u), current)
-				continuous_num = (current_thread_rev + 1 == thread_rev)
+				distance = (dat == self.dat) ? Float::MAX :
+				           (subject == self.subject) ? Float::MIN :
+				           levenshtein(subject.scan(/./u), current)
+				continuous_num = self.subject[/\d+/] ? (current_thread_rev + 1 == thread_rev) : nil
 				appear_recent  = recent_posted_threads[uri]
 
 				score = distance
@@ -336,7 +341,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 					:distance       => distance,
 					:continuous_num => continuous_num,
 					:appear_recent  => appear_recent,
-					:score          => score
+					:score          => score.to_f
 				}
 			}.sort_by {|o|
 				o[:score]
@@ -351,6 +356,8 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				b.length
 			when b.empty?
 				a.length
+			when a == b
+				0
 			else
 				d = Array.new(a.length + 1) { |s|
 					Array.new(b.length + 1, 0)
