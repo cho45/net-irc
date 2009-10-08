@@ -90,11 +90,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		case command
 		when 'next'
 			if @channels.key?(target)
-				info = @channels[target]
-				post server_name, NOTICE, target, "Guessing... #{info[:dat].subject}"
-				info[:dat].guess_next_thread.first(3).each do |t|
-					post server_name, NOTICE, target, "#{t[:uri]} #{t[:subject]}"
-				end
+				guess_next_thread(target)
 			end
 		end
 	rescue Exception => e
@@ -134,6 +130,21 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def guess_next_thread(channel)
+		info = @channels[channel]
+		post server_name, NOTICE, channel, "Current Thread: #{info[:dat].subject}"
+		post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
+		threads = info[:dat].guess_next_thread
+		threads.first(3).each do |t|
+			if t[:continuous_num] && t[:appear_recent]
+				post server_name, NOTICE, channel, "#{t[:uri]} \003%d#{t[:subject]}\017" % 10
+			else
+				post server_name, NOTICE, channel, "#{t[:uri]} #{t[:subject]}"
+			end
+		end
+		threads
+	end
+
 	def create_observer(channel)
 		info = @channels[channel]
 		info[:observer].kill if info[:observer]
@@ -151,11 +162,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 					end
 
 					if info[:dat].length >= 1000
-						post server_name, NOTICE, channel, "Current Thread: #{info[:dat].subject}"
-						post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
-						info[:dat].guess_next_thread.first(3).each do |t|
-							post server_name, NOTICE, channel, "#{t[:uri]} #{t[:subject]}"
-						end
+						guess_next_thread(channel)
 						break
 					end
 				rescue UnknownThread
@@ -213,12 +220,13 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		end
 
 		def subject
-			retrieve(true) unless self[1]
+			retrieve(true) if @dat.size.zero?
 			self[1].opts || ""
 		end
 
 		def [](n)
 			l = @dat[n - 1]
+			return nil unless l
 			name, mail, misc, body, opts = * l.split(/<>/)
 			id = misc[/ID:([^\s]+)/, 1]
 
@@ -296,24 +304,42 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 			current_thread_rev = (self.subject[/\d+/] || 0).to_i
 			current = self.subject.scan(/./u)
 
+			recent_posted_threads = (900..999).inject({}) {|r,i|
+				line = self[i]
+				line.body.scan(%r|http://#{@uri.host}/test/read.cgi/[^/]+/\d+/|).each do |uri|
+					r[uri] = i
+				end if line
+				r
+			}
+
 			body = NKF.nkf('-w', res.body)
 			threads = body.split(/\n/).map {|l|
 				dat, rest = *l.split(/<>/)
 				dat.sub!(/\.dat$/, "")
 
+				uri = "http://#{@uri.host}/test/read.cgi/#{@board}/#{dat}/"
+
 				subject, n = */(.+?) \((\d+)\)/.match(rest).captures
 
 				thread_rev = subject[/\d+/].to_i
 				distance = (subject == self.subject) ? Float::MAX : levenshtein(subject.scan(/./u), current)
-				distance -= 100 if current_thread_rev + 1 == thread_rev
+				continuous_num = (current_thread_rev + 1 == thread_rev)
+				appear_recent  = recent_posted_threads[uri]
+
+				score = distance
+				score -= 100 if continuous_num
+				score -= 100 if appear_recent
 				{
-					:uri      => "http://#{@uri.host}/test/read.cgi/#{@board}/#{dat}/",
-					:dat      => dat,
-					:subject  => subject,
-					:distance => distance
+					:uri            => uri,
+					:dat            => dat,
+					:subject        => subject,
+					:distance       => distance,
+					:continuous_num => continuous_num,
+					:appear_recent  => appear_recent,
+					:score          => score
 				}
 			}.sort_by {|o|
-				o[:distance]
+				o[:score]
 			}
 
 			threads
