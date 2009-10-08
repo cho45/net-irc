@@ -133,7 +133,6 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 	def guess_next_thread(channel)
 		info = @channels[channel]
 		post server_name, NOTICE, channel, "Current Thread: #{info[:dat].subject}"
-		post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
 		threads = info[:dat].guess_next_thread
 		threads.first(3).each do |t|
 			if t[:continuous_num] && t[:appear_recent]
@@ -162,6 +161,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 					end
 
 					if info[:dat].length >= 1000
+						post server_name, NOTICE, channel, "Thread is over 1000. Guessing next thread..."
 						guess_next_thread(channel)
 						break
 					end
