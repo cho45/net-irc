@@ -225,8 +225,8 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 			body.gsub!(/<br>/, "\n")
 			body.gsub!(/<[^>]+>/, "")
 			body.gsub!(/^\s+|\s+$/, "")
-			body.gsub!(/&(gt|lt|amp);/) {|s|
-				{ 'gt' => ">", 'lt' => "<", 'amp' => "&" }[$1]
+			body.gsub!(/&(gt|lt|amp|nbsp);/) {|s|
+				{ 'gt' => ">", 'lt' => "<", 'amp' => "&", 'nbsp' => " " }[$1]
 			}
 
 			Line.new(n, name, mail, misc, body, opts, id)
