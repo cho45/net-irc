@@ -679,7 +679,7 @@ class WassrIrcGateway < Net::IRC::Server::Session
 		text.gsub(%r|http://(preview\.)?tinyurl\.com/[0-9a-z=]+|i) {|m|
 			uri = URI(m)
 			uri.host = uri.host.sub($1, "") if $1
-			Net::HTTP.start(uri.host, uri.port) {|http|
+			expanded = Net::HTTP.start(uri.host, uri.port) {|http|
 				http.open_timeout = 3
 				begin
 					http.head(uri.request_uri, { "User-Agent" => @user_agent })["Location"] || m
@@ -687,6 +687,12 @@ class WassrIrcGateway < Net::IRC::Server::Session
 					m
 				end
 			}
+			expanded = URI(expanded)
+			if %w|http https|.include? expanded.scheme 
+				expanded.to_s
+			else
+				"#{expanded.scheme}: #{uri}"
+			end
 		}
 	end
 
