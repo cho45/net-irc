@@ -325,8 +325,8 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 				subject, n = */(.+?) \((\d+)\)/.match(rest).captures
 
 				thread_rev = subject[/\d+/].to_i
-				distance = (dat == self.dat) ? Float::MAX :
-				           (subject == self.subject) ? Float::MIN :
+				distance = (dat     == self.dat)     ? Float::MAX :
+				           (subject == self.subject) ? 0 :
 				           levenshtein(subject.scan(/./u), current)
 				continuous_num = self.subject[/\d+/] ? (current_thread_rev + 1 == thread_rev) : nil
 				appear_recent  = recent_posted_threads[uri]
