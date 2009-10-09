@@ -1,10 +1,12 @@
-#!/usr/bin/env ruby
+#!spec
 # coding: ASCII-8BIT
 # vim:encoding=UTF-8:
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
+require "rubygems"
+require "spec"
 require "net/irc"
 include Net::IRC
 include Constants

@@ -1,8 +1,11 @@
-#!/usr/bin/env ruby
+#!spec
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
+require "rubygems"
+require "spec"
+require "thread"
 require "net/irc"
 require "net/irc/client/channel_manager"
 include Net::IRC
