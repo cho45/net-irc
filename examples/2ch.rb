@@ -161,6 +161,7 @@ class ThreadData
 			score = distance
 			score -= 10 if continuous_num
 			score -= 10 if appear_recent
+			score += 10 if dat.to_i < self.dat.to_i
 			{
 				:uri            => uri,
 				:dat            => dat,
