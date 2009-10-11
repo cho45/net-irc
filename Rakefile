@@ -5,7 +5,6 @@ require 'rake/clean'
 require 'rake/packagetask'
 require 'rake/gempackagetask'
 require 'rake/rdoctask'
-require 'rake/contrib/rubyforgepublisher'
 require 'rake/contrib/sshpublisher'
 require 'fileutils'
 require 'spec/rake/spectask'
@@ -19,8 +18,7 @@ NAME              = "net-irc"
 AUTHOR            = "cho45"
 EMAIL             = "cho45@lowreal.net"
 DESCRIPTION       = "library for implementing IRC server and client"
-RUBYFORGE_PROJECT = "lowreal"
-HOMEPATH          = "http://#{RUBYFORGE_PROJECT}.rubyforge.org"
+HOMEPATH          = "http://github.com/cho45/net-irc"
 BIN_FILES         = %w(  )
 VERS              = Net::IRC::VERSION.dup
 
@@ -57,7 +55,6 @@ spec = Gem::Specification.new do |s|
 	s.email             = EMAIL
 	s.homepage          = HOMEPATH
 	s.executables       = BIN_FILES
-	s.rubyforge_project = RUBYFORGE_PROJECT
 	s.bindir            = "bin"
 	s.require_path      = "lib"
 	s.autorequire       = ""
