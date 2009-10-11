@@ -8,7 +8,7 @@ require "monitor"
 module Net; end
 
 module Net::IRC
-	VERSION = "0.0.8".freeze
+	VERSION = "0.0.9".freeze
 	class IRCException < StandardError; end
 
 	require "net/irc/constants"

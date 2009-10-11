@@ -104,24 +104,14 @@ Rake::RDocTask.new do |rdoc|
 	end
 end
 
-desc "Publish to RubyForge"
-task :rubyforge => [:rdoc, :package] do
-	require 'rubyforge'
-	@local_dir = "html"
-	@host = "cho45@rubyforge.org"
-	@remote_dir = "/var/www/gforge-projects/#{RUBYFORGE_PROJECT}/#{NAME}"
-	sh %{rsync -r --delete --verbose #{@local_dir}/ #{@host}:#{@remote_dir}}
-end
-
 Rake::ShipitTask.new do |s|
-	s.Step.new {
-		system("svn", "up")
-	}.and {}
 	s.ChangeVersion "lib/net/irc.rb", "VERSION"
 	s.Commit
 	s.Task :clean, :package
-	s.RubyForge
+	s.Step.new {
+	}.and {
+		system("gem", "push", "pkg/net-irc-#{VERS}.gem")
+	}
 	s.Tag
 	s.Twitter
-	s.Task :rubyforge
 end

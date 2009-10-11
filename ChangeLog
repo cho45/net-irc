@@ -1,7 +1,16 @@
+2009-10-11  SATOH Hiroh <cho45@lowreal.net>
+
+	* [new]
+		Implemented Server#sessions which returns all sessions connected to
+		the server.
+	* Released 0.0.9
+
 2009-08-08  SATOH Hiroh <cho45@lowreal.net>
 
 	* [bug]:
 		Fixed to work on ruby1.9.1 (now can send iso-2022-jp)
+	* [new]
+		Implemented Message#ctcps returns embedded all ctcp messages (drry).
 	* Released 0.0.8
 
 2009-02-19  SATOH Hiroh <cho45@lowreal.net>
