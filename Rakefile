@@ -18,7 +18,7 @@ NAME              = "net-irc"
 AUTHOR            = "cho45"
 EMAIL             = "cho45@lowreal.net"
 DESCRIPTION       = "library for implementing IRC server and client"
-HOMEPATH          = "http://github.com/cho45/net-irc"
+HOMEPATH          = "http://cho45.stfuawsc.com/net-irc/"
 BIN_FILES         = %w(  )
 VERS              = Net::IRC::VERSION.dup
 
@@ -86,6 +86,10 @@ task :uninstall => [:clean] do
 	sh %{sudo gem uninstall #{NAME}}
 end
 
+task :upload_doc => [:rdoc] do
+	sh %{rsync --update -avptr html/ lowreal@cho45.stfuawsc.com:/virtual/lowreal/public_html/cho45.stfuawsc.com/net-irc}
+end
+
 
 Rake::RDocTask.new do |rdoc|
 	rdoc.rdoc_dir = 'html'
@@ -104,7 +108,7 @@ end
 Rake::ShipitTask.new do |s|
 	s.ChangeVersion "lib/net/irc.rb", "VERSION"
 	s.Commit
-	s.Task :clean, :package
+	s.Task :clean, :package, :upload_doc
 	s.Step.new {
 	}.and {
 		system("gem", "push", "pkg/net-irc-#{VERS}.gem")
