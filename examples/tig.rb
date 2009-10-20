@@ -278,7 +278,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def server_version
-		head = `git rev-parse HEAD 2>/dev/null`
+		head = `git rev-parse HEAD 2>/dev/null`.chomp
 		head.empty?? "unknown" : head
 	end
 
