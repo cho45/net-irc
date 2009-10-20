@@ -1,0 +1,26 @@
+Core Authors::
+cho45
+drry
+Satoshi Nakagawa
+kouhei
+Wataru TOYA
+Yuki Sonoda (Yugui)
+yappo
+
+Example Contributors::
+cho45
+drry
+Keiji, Yoshimi
+shunirr
+smbd
+dzfl
+HIROSE Masaaki
+Kazuhiro NISHIYAMA
+Takeru Naito
+Yuki Sonoda (Yugui)
+yappo
+Keisuke SATO
+Sotaro KARASAWA
+Tokuhiro Matsuno
+Wataru TOYA
+kusigahama
