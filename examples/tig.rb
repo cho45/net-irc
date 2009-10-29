@@ -1713,7 +1713,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def untinyurl(text)
 		text.gsub(@opts.untiny_whole_urls ? URI.regexp(%w[http https]) : %r{
 			http:// (?:
-				(?: bit\.ly | (?: tin | rub) yurl\.com
+				(?: bit\.ly | (?: tin | rub) yurl\.com | j\.mp
 				  | is\.gd | cli\.gs | tr\.im | u\.nu | airme\.us
 				  | ff\.im | twurl.nl | bkite\.com | tumblr\.com
 				  | pic\.gd | sn\.im | digg\.com )
