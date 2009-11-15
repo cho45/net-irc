@@ -766,9 +766,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@me.friends_count += 1
 			end
 		when friend
-			((@groups[channel] ||= []) << friend.screen_name).uniq!
-			join channel, [friend]
-			save_config
+			slug = channel[1..-1]
+			api("/1/#{@me.screen_name}/#{slug}/members",{'id'=>friend.id})
+			@groups[channel] << friend
+			join(channel, [friend])
 		else
 			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 		end
@@ -790,7 +791,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		else
 			friend = friend(nick)
 			if friend
-				(@groups[channel] ||= []).delete(friend.screen_name)
+				slug = channel[1..-1]
+				api("/1/#{@me.screen_name}/#{slug}/members",{'id'=>friend.id, '_method'=>'DELETE'})
+				(@groups[channel] ||= []).delete_if{|u| u.screen_name == friend.screen_name }
 				post prefix(friend), PART, channel, "Removed: #{msg}"
 				save_config
 			else
@@ -1586,9 +1589,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			true
 		when %r{
        \A
-       (?: 1/#{@me.screen_name}/lists )
+       (?: 1/#{@me.screen_name} )
     }x
-			query.key? 'name' or query.key? '_method'
+			query.key? 'name' or query.key? '_method' or query.key? 'id'
 		end
 	end
 
