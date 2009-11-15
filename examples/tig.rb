@@ -1283,6 +1283,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+  	def diff_users(users1,users2)
+          screen_names = users2.map{|u| u.screen_name }
+          users1.delete_if{|u| screen_names.include? u.screen_name }
+	end
+
 	def check_lists
 		# FIXME: I dont support multipage
 		channels = api("1/#{@me.screen_name}/lists")['lists']
@@ -1309,11 +1314,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		channels.each do|channel|
 			name = '#' + channel.slug
-			(@groups.fetch(name,[]) - groups.fetch(name,[])).each do|user|
+			diff_users(@groups.fetch(name,[]),groups.fetch(name,[])).each do|user|
 				# deleted user
 				post prefix(user), PART, name, "Removed: #{user.screen_name}"
 			end
-			(groups.fetch(name,[]) - @groups.fetch(name,[])).each do|user|
+			diff_users(groups.fetch(name,[]),@groups.fetch(name,[])).each do|user|
 				# new user
 				join name, [user]
 			end
