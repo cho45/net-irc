@@ -507,7 +507,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end if @opts.dm
 
 	  @check_lists_thread = Thread.start do
-      loop do
+			loop do
 				begin
 					@log.info "LISTS update now..."
 					check_lists
@@ -518,8 +518,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				# FIXME: interval time
-				sleep interval(@ratio.mentions)
-      end
+				sleep 500
+			end
 		end
 
 		@check_mentions_thread = Thread.start do
