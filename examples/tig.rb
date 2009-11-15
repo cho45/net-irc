@@ -518,7 +518,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				# FIXME: interval time
-        sleep 500
+				sleep interval(@ratio.mentions)
       end
 		end
 
