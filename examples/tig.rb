@@ -318,7 +318,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def initialize(*args)
 		super
 		@groups = {}
-		@channels      = [] # follewed lists
+		@channels      = []
 		@nicknames     = {}
 		@drones        = []
 		@config        = Pathname.new(ENV["HOME"]) + ".tig" ### TODO マルチユーザに対応してない
@@ -716,18 +716,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_join(m)
-#		channels = m.params[0].split(/ *, */)
-#		channels.each do |channel|
-#			channel = channel.split(" ", 2).first
-#			next if channel.casecmp(main_channel).zero?
+		channels = m.params[0].split(/ *, */)
+		channels.each do |channel|
+			channel = channel.split(" ", 2).first
+			next if channel.casecmp(main_channel).zero?
 
-#			@channels << channel
-#			@channels.uniq!
-#			post @prefix, JOIN, channel
-#			post server_name, MODE, channel, "+mtio", @nick
-#			post server_name, MODE, channel, "+q", @nick
-#			save_config
-#		end
+			name = channel[1..-1]
+			@log.info "channel name #{name}"
+			unless @channels.include? name
+				# create list
+				@log.info "api call"
+				api("1/#{@me.screen_name}/lists",{'name' => name })
+			end
+			post @prefix, JOIN, channel
+			post server_name, MODE, channel, "+mtio", @nick
+			post server_name, MODE, channel, "+q", @nick
+		end
 	end
 
 	def on_part(m)
@@ -1564,8 +1568,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	rescue Errno::ENOENT
 	end
 
-	def require_post?(path)
-		%r{
+	def require_post?(path,query)
+		case path
+		when %r{
 			\A
 			(?: status(?:es)?/update \z
 			  | direct_messages/new \z
@@ -1574,7 +1579,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			  | favou?ri(?: ing | tes )/create/
 			  | notifications/
 			  | blocks/create/ )
-		}x === path
+		}x
+			true
+		when %r{
+       \A
+       (?: 1/#{@me.screen_name}/lists )
+    }x
+			query.key? 'name'
+		end
 	end
 
 	#def require_put?(path)
@@ -1583,21 +1595,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def api(path, query = {}, opts = {})
 		path.sub!(%r{\A/+}, "")
-		query = query.to_query_str
 
 		authenticate = opts.fetch(:authenticate, true)
 
 		uri = api_base(authenticate)
 		uri.path += path
 		uri.path += ".json" if path != "users/username_available"
-		uri.query = query unless query.empty?
+		uri.query = query.to_query_str unless query.empty?
 
 		header      = {}
 		credentials = authenticate ? [@real, @pass] : nil
 		req         = case
 			when path.include?("/destroy/")
 				http_req :delete, uri, header, credentials
-			when require_post?(path)
+			when require_post?(path,query)
 				http_req :post,   uri, header, credentials
 			#when require_put?(path)
 			#	http_req :put,    uri, header, credentials
