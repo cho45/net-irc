@@ -739,7 +739,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		name = channel[1..-1]
 		@log.info "delete list: #{name}"
-		api("1/#{@me.screen_name}/lists/#{name}",{'_method' => 'DELETE' })
+		api("1/#{@me.screen_name}/lists/#{name}",{'_method' => 'DELETE' }) rescue nil
 
 		post @prefix, PART, channel, "Ignore group #{channel}, but setting is alive yet."
 	end
