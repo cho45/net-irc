@@ -1412,7 +1412,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				message(status, main_channel, tid, nil, cmd)
 			end
 			@groups.each do |channel, members|
-				next unless members.include?(user.screen_name)
+				next unless members.map{|m| m.screen_name }.include?(user.screen_name)
 				message(status, channel, tid, nil, cmd)
 			end
 		end
