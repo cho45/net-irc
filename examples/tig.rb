@@ -423,9 +423,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ?  6 : 26 : @opts.dm
 		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 20 : 26 : @opts.mentions
 
-		# FIXME: cannot understand
-		@ratio.lists    = 26
-
 		@check_friends_thread = Thread.start do
 			loop do
 				begin
@@ -719,18 +716,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_join(m)
-		channels = m.params[0].split(/ *, */)
-		channels.each do |channel|
-			channel = channel.split(" ", 2).first
-			next if channel.casecmp(main_channel).zero?
+#		channels = m.params[0].split(/ *, */)
+#		channels.each do |channel|
+#			channel = channel.split(" ", 2).first
+#			next if channel.casecmp(main_channel).zero?
 
-			@channels << channel
-			@channels.uniq!
-			post @prefix, JOIN, channel
-			post server_name, MODE, channel, "+mtio", @nick
-			post server_name, MODE, channel, "+q", @nick
-			save_config
-		end
+#			@channels << channel
+#			@channels.uniq!
+#			post @prefix, JOIN, channel
+#			post server_name, MODE, channel, "+mtio", @nick
+#			post server_name, MODE, channel, "+q", @nick
+#			save_config
+#		end
 	end
 
 	def on_part(m)
@@ -1280,6 +1277,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def check_lists
 		# FIXME: I dont support multipage
 		channels = api("1/#{@me.screen_name}/lists")['lists']
+
+		groups = {}
+		channels.each do|channel|
+			name = '#' + channel.slug
+			groups[name] = api("1/#{@me.screen_name}/#{channel.slug}/members")['users']
+		end
+
 		(@channels - channels).each do|channel|
 			# unfollowed list
 			name = '#' + channel.slug
@@ -1293,7 +1297,21 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post server_name, MODE, name, "+mtio", @nick
 			post server_name, MODE, name, "+q", @nick
 		end
+
+		channels.each do|channel|
+			name = '#' + channel.slug
+			(@groups.fetch(name,[]) - groups.fetch(name,[])).each do|user|
+				# deleted user
+				post prefix(user), PART, name, "Removed: #{user.screen_name}"
+			end
+			(groups.fetch(name,[]) - @groups.fetch(name,[])).each do|user|
+				# new user
+				join name, [user]
+			end
+		end
+
 		@channels = channels
+		@groups = groups
 	end
 
 	def check_friends
