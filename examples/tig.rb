@@ -473,6 +473,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@check_timeline_thread = Thread.start do
 			sleep 2 * (@me.friends_count / 100.0).ceil
+			sleep 10
 
 			loop do
 				begin
