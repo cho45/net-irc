@@ -317,8 +317,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@groups        = {}
-		@channels      = [] # joined channels (groups)
+		@groups = {}
+		@channels      = [] # follewed lists
 		@nicknames     = {}
 		@drones        = []
 		@config        = Pathname.new(ENV["HOME"]) + ".tig" ### TODO マルチユーザに対応してない
@@ -423,6 +423,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@ratio.dm       ||= @opts.dm == true ? @opts.mentions ?  6 : 26 : @opts.dm
 		@ratio.mentions ||= @opts.mentions == true ? @opts.dm ? 20 : 26 : @opts.mentions
 
+		# FIXME: cannot understand
+		@ratio.lists    = 26
+
 		@check_friends_thread = Thread.start do
 			loop do
 				begin
@@ -505,6 +508,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end if @opts.dm
 
+	  @check_lists_thread = Thread.start do
+      loop do
+				begin
+					@log.info "LISTS update now..."
+					check_lists
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				# FIXME: interval time
+        sleep 10
+      end
+		end
+
 		@check_mentions_thread = Thread.start do
 			sleep interval(@ratio.timeline) / 2
 
@@ -530,6 +549,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_mentions_thread.kill rescue nil
 		@check_dms_thread.kill      rescue nil
 		@check_updates_thread.kill  rescue nil
+		@check_lists_thread.kill  rescue nil
 		@im_thread.kill             rescue nil
 		@im.disconnect              rescue nil
 	end
@@ -1257,6 +1277,25 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def check_lists
+		# FIXME: I dont support multipage
+		channels = api("1/#{@me.screen_name}/lists")['lists']
+		(@channels - channels).each do|channel|
+			# unfollowed list
+			name = '#' + channel.slug
+			post @prefix, PART, name, "Ignore group #{name}, but setting is alive yet."
+		end
+
+		(channels - @channels).each do|channel|
+			# new followed list
+			name = '#' + channel.slug
+			post @prefix, JOIN, name
+			post server_name, MODE, name, "+mtio", @nick
+			post server_name, MODE, name, "+q", @nick
+		end
+		@channels = channels
+	end
+
 	def check_friends
 		if @friends.nil?
 			@friends = page("statuses/friends/#{@me.id}", @me.friends_count)
@@ -1308,7 +1347,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		q    = { :count => 200 }
 		@latest_id ||= nil
 
-		case 
+		case
 		when @latest_id
 			q.update(:since_id => @latest_id)
 		when is_first_retrieve = !@me.statuses_count.zero? && !@me.friends_count.zero?
@@ -1492,8 +1531,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def save_config
 		config = {
-			:groups    => @groups,
-			:channels  => @channels,
 			#:nicknames => @nicknames,
 			:drones    => @drones,
 		}
@@ -1503,8 +1540,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def load_config
 		@config.open do |f|
 			config     = YAML.load(f)
-			@groups    = config[:groups]    || {}
-			@channels  = config[:channels]  || []
 			#@nicknames = config[:nicknames] || {}
 			@drones    = config[:drones]    || []
 		end
@@ -2051,6 +2086,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	                    :recipient_id, :recipient_screen_name, :recipient)
 	Geo    = Struct.new(:type, :coordinates, :geometries, :geometry, :properties, :id,
 	                    :crs, :name, :href, :bbox, :features)
+	List   = Struct.new(:mode, :uri, :slug, :member_count, :full_name, :name, :id, :subscriber_count, :user)
 
 	class TypableMap < Hash
 		#Roman = %w[
@@ -2163,12 +2199,15 @@ class Hash
 				TwitterIrcGateway::DM.new
 			when struct_of?(TwitterIrcGateway::Geo)
 				TwitterIrcGateway::Geo.new
+			when struct_of?(TwitterIrcGateway::List)
+				TwitterIrcGateway::List.new
 			else
 				members = keys
 				members.concat TwitterIrcGateway::User.members
 				members.concat TwitterIrcGateway::Status.members
 				members.concat TwitterIrcGateway::DM.members
 				members.concat TwitterIrcGateway::Geo.members
+				members.concat TwitterIrcGateway::List.members
 				members.map! {|m| m.to_sym }
 				members.uniq!
 				Struct.new(*members).new
