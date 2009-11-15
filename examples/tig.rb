@@ -722,10 +722,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			next if channel.casecmp(main_channel).zero?
 
 			name = channel[1..-1]
-			@log.info "channel name #{name}"
-			unless @channels.include? name
-				# create list
-				@log.info "api call"
+			unless @channels.find{|c| c.slug == name }
+				@log.info "create list: #{name}"
 				api("1/#{@me.screen_name}/lists",{'name' => name })
 			end
 			post @prefix, JOIN, channel
@@ -738,7 +736,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return if channel.casecmp(main_channel).zero?
 
-		@channels.delete(channel)
+		name = channel[1..-1]
+		@log.info "delete list: #{name}"
+		api("1/#{@me.screen_name}/lists/#{name}",{'_method' => 'DELETE' })
+
 		post @prefix, PART, channel, "Ignore group #{channel}, but setting is alive yet."
 	end
 
@@ -1416,8 +1417,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				message(status, main_channel, tid, nil, cmd)
 			end
 			@groups.each do |channel, members|
-				next unless members.map{|m| m.screen_name }.include?(user.screen_name)
-				message(status, channel, tid, nil, cmd)
+				if members.find{|m| m.screen_name == user.screen_name }
+					message(status, channel, tid, nil, cmd)
+				end
 			end
 		end
 	end
@@ -1585,7 +1587,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
        \A
        (?: 1/#{@me.screen_name}/lists )
     }x
-			query.key? 'name'
+			query.key? 'name' or query.key? '_method'
 		end
 	end
 
