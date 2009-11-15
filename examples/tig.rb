@@ -706,8 +706,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			users.each {|friend| whoreply.call channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		when (@groups.key?(channel) and @friends)
-			@groups[channel].each do |nick|
-				whoreply.call channel, friend(nick)
+			@groups[channel].each do |user|
+				whoreply.call channel, user
 			end
 			post server_name, RPL_ENDOFWHO, @nick, channel
 		else
