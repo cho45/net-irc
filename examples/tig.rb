@@ -517,7 +517,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				# FIXME: interval time
-        sleep 10
+        sleep 500
       end
 		end
 
