@@ -1285,7 +1285,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
   	def diff_users(users1,users2)
           screen_names = users2.map{|u| u.screen_name }
-          users1.delete_if{|u| screen_names.include? u.screen_name }
+          users1.filter{|u| not screen_names.include?(u.screen_name) }
 	end
 
 	def check_lists
