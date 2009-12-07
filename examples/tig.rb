@@ -317,11 +317,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@groups = {}
-		@channels      = []
+		@channels      = {}
 		@nicknames     = {}
 		@drones        = []
-		@config        = Pathname.new(ENV["HOME"]) + ".tig" ### TODO マルチユーザに対応してない
 		@etags         = {}
 		@consums       = []
 		@limit         = hourly_limit
@@ -332,7 +330,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@im_thread     =
 		@utf7          =
 		@httpproxy     = nil
-		load_config
 	end
 
 	def on_user(m)
@@ -506,11 +503,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end if @opts.dm
 
-	  @check_lists_thread = Thread.start do
+		@check_lists_thread = Thread.start do
+			Thread.current[:last_updated] = Time.at(0)
 			loop do
 				begin
 					@log.info "LISTS update now..."
 					check_lists
+					Thread.current[:last_updated] = Time.now
 				rescue Exception => e
 					@log.error e.inspect
 					e.backtrace.each do |l|
@@ -518,7 +517,27 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				# FIXME: interval time
-				sleep 500
+				sleep 60 * 60
+			end
+		end
+
+		# TODO: 今のままだとフォローしているユーザしかリストに流れてこない。
+		# follow の包含関係を見て、必要なリストはとってこないといけない
+		@check_lists_status_thread = Thread.start do
+			Thread.current[:last_updated] = Time.at(0)
+			loop do
+				begin
+					@log.info "lists/status update now... #{@channels.size}"
+					check_lists_status
+					Thread.current[:last_updated] = Time.now
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				# FIXME: interval time
+				sleep 120
 			end
 		end
 
@@ -542,14 +561,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def on_disconnected
-		@check_friends_thread.kill  rescue nil
-		@check_timeline_thread.kill rescue nil
-		@check_mentions_thread.kill rescue nil
-		@check_dms_thread.kill      rescue nil
-		@check_updates_thread.kill  rescue nil
-		@check_lists_thread.kill  rescue nil
-		@im_thread.kill             rescue nil
-		@im.disconnect              rescue nil
+		@check_friends_thread.kill      rescue nil
+		@check_timeline_thread.kill     rescue nil
+		@check_mentions_thread.kill     rescue nil
+		@check_dms_thread.kill          rescue nil
+		@check_updates_thread.kill      rescue nil
+		@check_lists_thread.kill        rescue nil
+		@check_lists_status_thread.kill rescue nil
+		@im_thread.kill                 rescue nil
+		@im.disconnect                  rescue nil
 	end
 
 	def on_privmsg(m)
@@ -706,8 +726,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			users.concat @friends.reverse if @friends
 			users.each {|friend| whoreply.call channel, friend }
 			post server_name, RPL_ENDOFWHO, @nick, channel
-		when (@groups.key?(channel) and @friends)
-			@groups[channel].each do |user|
+		when (@channels.key?(channel) and @friends)
+			@channels[channel][:members].each do |user|
 				whoreply.call channel, user
 			end
 			post server_name, RPL_ENDOFWHO, @nick, channel
@@ -722,14 +742,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			channel = channel.split(" ", 2).first
 			next if channel.casecmp(main_channel).zero?
 
-			name = channel[1..-1]
-			unless @channels.find{|c| c.slug == name }
-				@log.info "create list: #{name}"
-				api("1/#{@me.screen_name}/lists",{'name' => name })
-			end
-			post @prefix, JOIN, channel
-			post server_name, MODE, channel, "+mtio", @nick
-			post server_name, MODE, channel, "+q", @nick
+# auto rejoin のとき勝手に作って困るのでコメントアウト。
+# create するまえに、必ず check_lists するようにしないと。
+#			name = channel[1..-1]
+#			unless @channels.find{|c| c.slug == name }
+#				@log.info "create list: #{name}"
+#				api("1/#{@me.screen_name}/lists",{'name' => name })
+#			end
+#			post @prefix, JOIN, channel
+#			post server_name, MODE, channel, "+mtio", @nick
+#			post server_name, MODE, channel, "+q", @nick
 		end
 	end
 
@@ -737,11 +759,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		channel = m.params[0]
 		return if channel.casecmp(main_channel).zero?
 
-		name = channel[1..-1]
-		@log.info "delete list: #{name}"
-		api("1/#{@me.screen_name}/lists/#{name}",{'_method' => 'DELETE' }) rescue nil
-
-		post @prefix, PART, channel, "Ignore group #{channel}, but setting is alive yet."
+# いきなり delete とか危険なのでコメントアウト
+# IRC Gateway 側に流れない、という挙動にし、delete するには ctcp を必要に
+#		name = channel[1..-1]
+#		@log.info "delete list: #{name}"
+#		api("1/#{@me.screen_name}/lists/#{name}",{'_method' => 'DELETE' }) rescue nil
+#		post @prefix, PART, channel, "Ignore group #{channel}, but setting is alive yet."
 	end
 
 	def on_invite(m)
@@ -768,7 +791,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		when friend
 			slug = channel[1..-1]
 			api("/1/#{@me.screen_name}/#{slug}/members",{'id'=>friend.id})
-			@groups[channel] << friend
+			@channels[channel][:members] << friend
 			join(channel, [friend])
 		else
 			post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
@@ -793,9 +816,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			if friend
 				slug = channel[1..-1]
 				api("/1/#{@me.screen_name}/#{slug}/members",{'id'=>friend.id, '_method'=>'DELETE'})
-				(@groups[channel] ||= []).delete_if{|u| u.screen_name == friend.screen_name }
+				@channels[channel][:members].delete_if{|u| u.screen_name == friend.screen_name }
 				post prefix(friend), PART, channel, "Removed: #{msg}"
-				save_config
 			else
 				post server_name, ERR_NOSUCHNICK, nick, "No such nick/channel"
 			end
@@ -908,7 +930,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@nicknames[screen_name] = nickname
 			log "Call #{screen_name} as #{nickname}"
 		end
-		#save_config
 	end
 
 	ctcp_action "debug" do |target, mesg, command, args|
@@ -1208,8 +1229,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Marks #{bot} as a bot."
 			end
 		end
-		save_config
-
 	end
 
 	ctcp_action "home", "h" do |target, mesg, command, args|
@@ -1283,49 +1302,78 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-  	def diff_users(users1,users2)
-          screen_names = users2.map{|u| u.screen_name }
-          users1.filter{|u| not screen_names.include?(u.screen_name) }
-	end
-
 	def check_lists
 		# FIXME: I dont support multipage
-		channels = api("1/#{@me.screen_name}/lists")['lists']
+		lists = api("1/#{@me.screen_name}/lists")['lists']
 
-		groups = {}
-		channels.each do|channel|
-			name = '#' + channel.slug
-			groups[name] = api("1/#{@me.screen_name}/#{channel.slug}/members")['users']
+		# expend lists.size API count
+		channels = {}
+		lists.each do |list|
+			begin
+				name = (list.user.screen_name == @me.screen_name) ?
+					   "##{list.slug}" : 
+					   "##{list.user.screen_name}^#{list.slug}"
+				members =  api("1/#{@me.screen_name}/#{list.slug}/members")['users']
+
+				channel = {
+					:name    => name,
+					:list    => list,
+					:members => members,
+				}
+
+				new = channel[:members]
+				old = @channels.fetch(channel[:name], { :members => [] })[:members]
+
+				# deleted user
+				(old - new).each do|user|
+					post prefix(user), PART, name, "Removed: #{user.screen_name}"
+				end
+
+				# new user
+				(new - old).each do|user|
+					join name, [user]
+				end
+
+				channels[name] = channel
+			rescue APIFailed => e
+				log e.inspect
+			end
 		end
 
-		(@channels - channels).each do|channel|
-			# unfollowed list
-			name = '#' + channel.slug
-			post @prefix, PART, name, "Ignore group #{name}, but setting is alive yet."
+		# unfollowed
+		(@channels.keys - channels.keys).each do |name|
+			post @prefix, PART, name, "No longer follow the list #{name}"
 		end
 
-		(channels - @channels).each do|channel|
-			# new followed list
-			name = '#' + channel.slug
+		# followed
+		(channels.keys - @channels.keys).each do |name|
 			post @prefix, JOIN, name
 			post server_name, MODE, name, "+mtio", @nick
 			post server_name, MODE, name, "+q", @nick
 		end
 
-		channels.each do|channel|
-			name = '#' + channel.slug
-			diff_users(@groups.fetch(name,[]),groups.fetch(name,[])).each do|user|
-				# deleted user
-				post prefix(user), PART, name, "Removed: #{user.screen_name}"
-			end
-			diff_users(groups.fetch(name,[]),@groups.fetch(name,[])).each do|user|
-				# new user
-				join name, [user]
+		@channels = channels
+	end
+
+	def check_lists_status
+		friends = @friends || []
+		@channels.each do |name, channel|
+			# タイムラインに全員含まれているならとってこなくてもよいが
+			# そうでなければ個別にとってくる必要がある。
+			unless (channel[:members] - friends).empty?
+				list = channel[:list]
+				@log.debug "retrieve #{name} statuses"
+				res = api("1/#{list.user.screen_name}/lists/#{list.id}/statuses", {
+					:since_id => channel[:last_id]
+				})
+				res.reverse_each do |s|
+					next if channel[:members].include? s.user
+					# TODO tid
+					message(s, name, nil, nil, channel[:last_id] ? PRIVMSG : NOTICE)
+				end
+				channel[:last_id] = res.last.id
 			end
 		end
-
-		@channels = channels
-		@groups = groups
 	end
 
 	def check_friends
@@ -1425,9 +1473,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 				message(status, main_channel, tid, nil, cmd)
 			end
-			@groups.each do |channel, members|
-				if members.find{|m| m.screen_name == user.screen_name }
-					message(status, channel, tid, nil, cmd)
+			@channels.each do |name, channel|
+				if channel[:members].find{|m| m.screen_name == user.screen_name }
+					message(status, name, tid, nil, cmd)
 				end
 			end
 		end
@@ -1487,7 +1535,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		res = http(uri).request(http_req(:get, uri))
 
 		latest = JSON.parse(res.body)['commits'][0]['id']
-		unless server_version == latest
+		unless system('git', 'rev-parse', latest)
 			log "\002New version is available.\017 run 'git pull'."
 		end
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
@@ -1560,23 +1608,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				sleep 1
 			end
 		end
-	end
-
-	def save_config
-		config = {
-			#:nicknames => @nicknames,
-			:drones    => @drones,
-		}
-		@config.open("w") {|f| YAML.dump(config, f) }
-	end
-
-	def load_config
-		@config.open do |f|
-			config     = YAML.load(f)
-			#@nicknames = config[:nicknames] || {}
-			@drones    = config[:drones]    || []
-		end
-	rescue Errno::ENOENT
 	end
 
 	def require_post?(path,query)
@@ -2127,6 +2158,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	Geo    = Struct.new(:type, :coordinates, :geometries, :geometry, :properties, :id,
 	                    :crs, :name, :href, :bbox, :features)
 	List   = Struct.new(:mode, :uri, :slug, :member_count, :full_name, :name, :id, :subscriber_count, :user)
+
+	class User
+		def hash
+			self.id
+		end
+
+		def eql?(other)
+			self.id == other.id
+		end
+
+		def ==(other)
+			self.id == other.id
+		end
+	end
 
 	class TypableMap < Hash
 		#Roman = %w[
