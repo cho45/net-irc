@@ -537,14 +537,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@ratelimit.incr(:lists)
 					end
 					Thread.current[:last_updated] = Time.now
+
+					sleep @ratelimit.interval(:lists)
 				rescue Exception => e
 					@log.error e.inspect
 					e.backtrace.each do |l|
 						@log.error "\t#{l}"
 					end
+					sleep 60
 				end
-				# FIXME: interval time
-				sleep @ratelimit.interval(:lists)
 			end
 		end
 
@@ -1285,6 +1286,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_lists
+		updated = false
+
 		# FIXME: I dont support multipage
 		lists = api("1/#{@me.screen_name}/lists")['lists']
 
@@ -1309,11 +1312,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				# deleted user
 				(old - new).each do|user|
 					post prefix(user), PART, name, "Removed: #{user.screen_name}"
+					updated = true
 				end
 
 				# new user
 				(new - old).each do|user|
 					join name, [user]
+					updated = true
 				end
 
 				channels[name] = channel
@@ -1325,6 +1330,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		# unfollowed
 		(@channels.keys - channels.keys).each do |name|
 			post @prefix, PART, name, "No longer follow the list #{name}"
+			updated = true
 		end
 
 		# followed
@@ -1332,9 +1338,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post @prefix, JOIN, name
 			post server_name, MODE, name, "+mtio", @nick
 			post server_name, MODE, name, "+q", @nick
+			updated = true
 		end
 
 		@channels = channels
+		updated
 	end
 
 	def check_lists_status
