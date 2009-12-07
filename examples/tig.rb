@@ -521,8 +521,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
-		# TODO: 今のままだとフォローしているユーザしかリストに流れてこない。
-		# follow の包含関係を見て、必要なリストはとってこないといけない
 		@check_lists_status_thread = Thread.start do
 			Thread.current[:last_updated] = Time.at(0)
 			loop do
@@ -537,7 +535,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 				# FIXME: interval time
-				sleep 120
+				sleep 60 * 5
 			end
 		end
 
@@ -1545,7 +1543,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def interval(ratio)
 		now   = Time.now
 		max   = @opts.maxlimit || 0
-		limit = 0.98 * @limit # 98% of the rate limit
+		limit = 0.90 * @limit # 98% of the rate limit
 		i     = 3600.0        # an hour in seconds
 		i *= @ratio.inject {|sum, r| sum.to_f + r.to_f } +
 		     @consums.delete_if {|t| t < now }.size
