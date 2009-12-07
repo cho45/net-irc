@@ -1369,7 +1369,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					# TODO tid
 					message(s, name, nil, nil, channel[:last_id] ? PRIVMSG : NOTICE)
 				end
-				channel[:last_id] = res.last.id
+				channel[:last_id] = res.first.id
 			end
 		end
 	end
