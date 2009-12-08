@@ -1299,9 +1299,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_lists
 		updated = false
+		until @friends
+			@log.debug "waiting retrieving friends..."
+			sleep 1
+		end
 
 		# FIXME: I dont support multipage
-		lists = api("1/#{@me.screen_name}/lists")['lists']
+		lists = page("1/#{@me.screen_name}/lists", :lists, true)
 
 		# expend lists.size API count
 		channels = {}
@@ -1310,7 +1314,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				name = (list.user.screen_name == @me.screen_name) ?
 					   "##{list.slug}" : 
 					   "##{list.user.screen_name}^#{list.slug}"
-				members =  api("1/#{@me.screen_name}/#{list.slug}/members")['users']
+				members = page("1/#{@me.screen_name}/#{list.slug}/members", :users, true)
+				log "Miss match member_count '%s', lists:%d vs members:%s" % [ list.slug, list.member_count, members.size ] unless list.member_count == members.size
 
 				channel = {
 					:name      => name,
@@ -1381,7 +1386,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_friends
 		if @friends.nil?
-			@friends = page("statuses/friends/#{@me.id}", @me.friends_count)
+			@friends = page("statuses/friends/#{@me.id}", :users)
 			if @opts.athack
 				join main_channel, @friends
 			else
@@ -1400,26 +1405,27 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post server_name, RPL_ENDOFNAMES, @nick, main_channel, "End of NAMES list"
 			end
 		else
-			new_ids    = page("friends/ids/#{@me.id}", @me.friends_count)
-			friend_ids = @friends.reverse.map {|friend| friend.id }
+			@me = api("account/update_profile") #api("account/verify_credentials")
+			if @me.friends_count != @friends.size
+				new_ids    = page("friends/ids/#{@me.id}", :ids)
+				friend_ids = @friends.reverse.map {|friend| friend.id }
 
-			(friend_ids - new_ids).each do |id|
-				@friends.delete_if do |friend|
-					if friend.id == id
-						post prefix(friend), PART, main_channel, ""
-						@me.friends_count -= 1
+				(friend_ids - new_ids).each do |id|
+					@friends.delete_if do |friend|
+						if friend.id == id
+							post prefix(friend), PART, main_channel, ""
+						end
 					end
 				end
-			end
 
-			new_ids -= friend_ids
-			unless new_ids.empty?
-				new_friends = page("statuses/friends/#{@me.id}", new_ids.size)
-				join main_channel, new_friends.delete_if {|friend|
-					@friends.any? {|i| i.id == friend.id }
-				}.reverse
-				@friends.concat new_friends
-				@me.friends_count += new_friends.size
+				new_ids -= friend_ids
+				unless new_ids.empty?
+					new_friends = page("statuses/friends/#{@me.id}", :users)
+					join main_channel, new_friends.delete_if {|friend|
+						@friends.any? {|i| i.id == friend.id }
+					}.reverse
+					@friends.concat new_friends
+				end
 			end
 		end
 	end
@@ -1724,17 +1730,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		raise APIFailed, e.inspect
 	end
 
-	def page(path, max_count, authenticate = false)
+	def page(path, name, authenticate = false, &block)
 		@limit_remaining_for_ip ||= 52
 		limit = 0.98 * @limit_remaining_for_ip # 98% of IP based rate limit
 		r     = []
-		cpp   = nil # counts per page
+		cursor = -1
 		1.upto(limit) do |num|
-			ret = api(path, { :page => num }, { :authenticate => authenticate })
-			cpp ||= ret.size
-			r.concat ret
-			break if ret.empty? or num >= max_count / cpp.to_f or
-			         ret.size != cpp or r.size >= max_count
+			ret = api(path, { :cursor => cursor }, { :authenticate => authenticate })
+			arr = ret[name.to_s]
+			r.concat arr
+			cursor = ret[:next_cursor]
+			break if cursor.zero?
 		end
 		r
 	end
@@ -2273,7 +2279,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		def inspect
-			"#<%s:%08x %s>" % [self.class, self.__id__,
+			"#<%s:0x%08x %s>" % [self.class, self.__id__,
 				@rates.keys.map {|name| "#{name}:#{interval(name)}" }.join(' ')
 			]
 		end
