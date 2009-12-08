@@ -474,6 +474,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				begin
 					if check_timeline
 						@ratelimit.incr(:timeline)
+					else
+						@ratelimit.decr(:timeline)
 					end
 				rescue APIFailed => e
 					@log.error e.inspect
@@ -493,6 +495,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				begin
 					if check_direct_messages
 						@ratelimit.incr(:dm)
+					else
+						@ratelimit.decr(:dm)
 					end
 				rescue APIFailed => e
 					@log.error e.inspect
@@ -514,6 +518,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				begin
 					if check_mentions
 						@ratelimit.incr(:mentions)
+					else
+						@ratelimit.decr(:mentions)
 					end
 				rescue APIFailed => e
 					@log.error e.inspect
@@ -529,12 +535,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		@ratelimit.register(:lists, 60 * 60)
 		@check_lists_thread = Thread.start do
+			sleep 60
 			Thread.current[:last_updated] = Time.at(0)
 			loop do
 				begin
 					@log.info "LISTS update now..."
 					if check_lists
 						@ratelimit.incr(:lists)
+					else
+						@ratelimit.decr(:lists)
 					end
 					Thread.current[:last_updated] = Time.now
 
@@ -555,8 +564,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					@log.info "lists/status update now... #{@channels.size}"
+					## TODO 各リストにつき limit が必要
 					if check_lists_status
 						@ratelimit.incr(:lists_status)
+					else
+						@ratelimit.decr(:lists_status)
 					end
 					Thread.current[:last_updated] = Time.now
 				rescue Exception => e
@@ -1301,9 +1313,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				members =  api("1/#{@me.screen_name}/#{list.slug}/members")['users']
 
 				channel = {
-					:name    => name,
-					:list    => list,
-					:members => members,
+					:name      => name,
+					:list      => list,
+					:members   => members,
+					:inclusion => (members - @friends).empty?
 				}
 
 				new = channel[:members]
@@ -1350,19 +1363,19 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@channels.each do |name, channel|
 			# タイムラインに全員含まれているならとってこなくてもよいが
 			# そうでなければ個別にとってくる必要がある。
-			unless (channel[:members] - friends).empty?
-				list = channel[:list]
-				@log.debug "retrieve #{name} statuses"
-				res = api("1/#{list.user.screen_name}/lists/#{list.id}/statuses", {
-					:since_id => channel[:last_id]
-				})
-				res.reverse_each do |s|
-					next if channel[:members].include? s.user
-					# TODO tid
-					message(s, name, nil, nil, channel[:last_id] ? PRIVMSG : NOTICE)
-				end
-				channel[:last_id] = res.first.id
+			next if channel[:inclusion]
+
+			list = channel[:list]
+			@log.debug "retrieve #{name} statuses"
+			res = api("1/#{list.user.screen_name}/lists/#{list.id}/statuses", {
+				:since_id => channel[:last_id]
+			})
+			res.reverse_each do |s|
+				next if channel[:members].include? s.user
+				# TODO tid
+				message(s, name, nil, nil, channel[:last_id] ? PRIVMSG : NOTICE)
 			end
+			channel[:last_id] = res.first.id
 		end
 	end
 
