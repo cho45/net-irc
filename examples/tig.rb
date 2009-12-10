@@ -1736,7 +1736,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		r     = []
 		cursor = -1
 		1.upto(limit) do |num|
-			ret = api(path, { :cursor => cursor }, { :authenticate => authenticate })
+			# next_cursor にアクセスするとNot found が返ってくることがあるので，その時はbreak
+			ret = api(path, { :cursor => cursor }, { :authenticate => authenticate }) rescue break
 			arr = ret[name.to_s]
 			r.concat arr
 			cursor = ret[:next_cursor]
