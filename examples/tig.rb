@@ -224,6 +224,11 @@ Set 0 to disable checking.
 
 	/me bot NICK [NICK...]
 
+### spam
+report user as spammer
+
+	/me spam <NICK>|<ID>
+
 ## Feed
 
 <http://coderepos.org/share/log/lang/ruby/net-irc/trunk/examples/tig.rb?limit=100&mode=stop_on_copy&format=rss>
@@ -1263,6 +1268,26 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	ctcp_action "spam" do |target, mesg, command, args|
+		if args.empty?
+			log "/me spam <NICK>|<ID>"
+			return
+		end
+		nick_or_tid = args.first
+		if status = @timeline[nick_or_tid]
+			screen_name = status.user.screen_name
+		else
+			if not nick.screen_name? or
+			   api("users/username_available", { :username => nick }).valid
+				post server_name, ERR_NOSUCHNICK, nick, "No such nick"
+				return
+			end
+			screen_name = nick_or_tid
+		end
+		api("report_spam", { :screen_name => screen_name })
+		log "reported user \"#{screen_name}\" as spammer"
+	end
+
 	def on_ctcp_clientinfo(target, msg)
 		if user = user(target)
 			post prefix(user), NOTICE, @nick, ctcp_encode("CLIENTINFO :CLIENTINFO USERINFO VERSION TIME")
@@ -1625,7 +1650,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			  | account/(?: end_session \z | update_ )
 			  | favou?ri(?: ing | tes )/create/
 			  | notifications/
-			  | blocks/create/ )
+			  | blocks/create/
+			  | report_spam )
 		}x
 			true
 		when %r{
