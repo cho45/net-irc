@@ -1329,7 +1329,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			sleep 1
 		end
 
-		# FIXME: I dont support multipage
 		lists = page("1/#{@me.screen_name}/lists", :lists, true)
 
 		# expend lists.size API count
