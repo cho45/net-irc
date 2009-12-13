@@ -283,8 +283,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def server_version
-		head = `git rev-parse HEAD 2>/dev/null`.chomp
-		head.empty?? "unknown" : head
+		@server_version ||= instance_eval {
+			head = `git rev-parse HEAD 2>/dev/null`.chomp
+			head.empty?? "unknown" : head
+		}
 	end
 
 	def available_user_modes
@@ -456,6 +458,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					@log.info "check_updates"
+					update_redundant_suffix
 					check_updates
 				rescue Exception => e
 					@log.error e.inspect
@@ -1401,8 +1404,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			})
 			res.reverse_each do |s|
 				next if channel[:members].include? s.user
+				command = (s.user.id == @me.id) ?  NOTICE : PRIVMSG
+				command = channel[:last_id]     ? PRIVMSG : NOTICE
 				# TODO tid
-				message(s, name, nil, nil, channel[:last_id] ? PRIVMSG : NOTICE)
+				message(s, name, nil, nil, command)
 			end
 			channel[:last_id] = res.first.id
 		end
@@ -1573,17 +1578,18 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_updates
-		update_redundant_suffix
 
 		uri = URI("http://github.com/api/v1/json/cho45/net-irc/commits/master")
 		@log.debug uri.inspect
 		res = http(uri).request(http_req(:get, uri))
 
-		latest = JSON.parse(res.body)['commits'][0]['id']
-		latest.gsub!(/[^0-9a-z]/i, "")
+		commits = JSON.parse(res.body)['commits']
+		latest  = commits.first['id'][/^[^0-9a-z]$/i]
 
 		is_in_local_repos = system("git rev-parse --verify #{latest} 2>/dev/null")
 		unless is_in_local_repos
+
+
 			log "\002New version is available.\017 run 'git pull'."
 		end
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
