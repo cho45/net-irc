@@ -1657,9 +1657,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		}x
 			true
 		when %r{
-       \A
-       (?: 1/#{@me.screen_name} )
-    }x
+			\A
+			(?: 1/#{@me.screen_name} )
+		}x
 			query.key? 'name' or query.key? '_method' or query.key? 'id'
 		end
 	end
