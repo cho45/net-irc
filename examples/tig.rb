@@ -947,6 +947,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	ctcp_action "reload" do |target, mesg, command, args|
+		load File.expand_path(__FILE__)
+		@server_version = nil
+		log "Reloaded tig.rb. New: #{server_version}"
+		post server_name, RPL_MYINFO, @nick, "#{server_name} #{server_version} #{available_user_modes} #{available_channel_modes}"
+	end
+
 	ctcp_action "call" do |target, mesg, command, args|
 		if args.size < 2
 			log "/me call <Twitter_screen_name> as <IRC_nickname>"
@@ -2299,7 +2306,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		private :[]=
-		undef update, merge, merge!, replace
 	end
 
 	class RateLimit
