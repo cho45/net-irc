@@ -1522,7 +1522,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 			@channels.each do |name, channel|
 				if channel[:members].find{|m| m.screen_name == user.screen_name }
-					message(status, name, tid, nil, cmd)
+					message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : cmd)
 				end
 			end
 			updated = true
