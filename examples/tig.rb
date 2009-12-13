@@ -1405,7 +1405,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			res.reverse_each do |s|
 				next if channel[:members].include? s.user
 				command = (s.user.id == @me.id) ?  NOTICE : PRIVMSG
-				command = channel[:last_id]     ? PRIVMSG : NOTICE
+				command = channel[:last_id]     ? command : NOTICE
 				# TODO tid
 				message(s, name, nil, nil, command)
 			end
