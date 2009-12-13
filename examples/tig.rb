@@ -1580,7 +1580,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		res = http(uri).request(http_req(:get, uri))
 
 		latest = JSON.parse(res.body)['commits'][0]['id']
-		unless system('git', 'rev-parse', latest)
+		latest.gsub!(/[^0-9a-z]/i, "")
+
+		is_in_local_repos = system("git rev-parse --verify #{latest} 2>/dev/null")
+		unless is_in_local_repos
 			log "\002New version is available.\017 run 'git pull'."
 		end
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
