@@ -15,13 +15,13 @@ $KCODE = "u" unless defined? ::Encoding # json use this
 
 require "rubygems"
 require "json"
+require "net/http"
 require "net/irc"
-require "mechanize"
 require "sdbm"
 require "tmpdir"
 require "nkf"
-require "hpricot"
-WWW::Mechanize.html_parser = Hpricot
+require 'mechanize'
+require 'nokogiri'
 
 class HatenaStarStream < Net::IRC::Server::Session
 	def server_name
@@ -36,7 +36,7 @@ class HatenaStarStream < Net::IRC::Server::Session
 		"#star"
 	end
 
-	def initialize(*args)
+	def initialize(*a)
 		super
 		@ua = WWW::Mechanize.new
 		@ua.max_history = 1
@@ -47,12 +47,13 @@ class HatenaStarStream < Net::IRC::Server::Session
 		post @prefix, JOIN, main_channel
 		post server_name, MODE, main_channel, "+o", @prefix.nick
 
-		@real, *@opts = @opts.name || @real.split(/\s+/)
+		@real, *@opts = @real.split(/\s+/)
 		@opts = @opts.inject({}) {|r,i|
 			key, value = i.split("=")
 			r.update(key => value)
 		}
 
+		@uri = URI("http://s.hatena.ne.jp/#{@real}/report.json?api_key=#{@pass}")
 		start_observer
 	end
 
@@ -61,15 +62,6 @@ class HatenaStarStream < Net::IRC::Server::Session
 	end
 
 	def on_privmsg(m)
-		@ua.instance_eval do
-			get "http://h.hatena.ne.jp/"
-			form = page.forms.find {|f| f.action == "/entry" }
-			form["body"] = m[1]
-			submit form
-		end
-		post server_name, NOTICE, main_channel, "posted"
-	rescue Exception => e
-		log e.inspect
 	end
 
 	def on_ctcp(target, message)
@@ -93,34 +85,40 @@ class HatenaStarStream < Net::IRC::Server::Session
 			Thread.abort_on_exception = true
 			loop do
 				begin
-					login
 					@log.info "getting report..."
-					@ua.get("http://s.hatena.ne.jp/#{@real}/report")
-					entries = @ua.page.root.search("#main span.entry-title a").map {|a|
-						a['href']
-					}
-
-					@log.info "getting stars... #{entries.length}"
-					stars = retrive_stars(entries)
+					@log.debug @uri.to_s
+					data = JSON.parse(Net::HTTP.get(@uri.host, @uri.request_uri, @uri.port))
 
 					db = SDBM.open("#{Dir.tmpdir}/#{@real}.db", 0666)
-					entries.reverse_each do |entry|
-						next if stars[entry].empty?
-						i = 0
-						s = stars[entry].select {|star|
-							id = "#{entry}::#{i}"
-							i += 1
+					data['entries'].reverse_each do |entry|
+						stars = ((entry['colored_stars'] || []) + [ entry ]).inject([]) {|r,i|
+							r.concat i['stars'].map {|s| Star.new(s, i['color'] || 'normal') }
+						}
+
+						indexes = Hash.new(1)
+						s = stars.select {|star|
+							id = "#{entry['uri']}::#{indexes[star.color]}"
+							indexes[star.color] += 1
 							if db.include?(id)
 								false
 							else
 								db[id] = "1"
 								true
 							end
+						}.inject([]) {|r,i|
+							if r.last == i
+								r.last.count += 1
+							else
+								r << i
+							end
+							r
 						}
 
-						post server_name, NOTICE, main_channel, "#{entry} #{title(entry)}" if s.length > 0
-						if @opts.key?("metadata")
-							post "metadata", NOTICE, main_channel,  JSON.generate({ "uri" => entry })
+						if s.length > 0
+							post server_name, NOTICE, main_channel, "#{entry['uri']} #{title(entry['uri'])}"
+							if @opts.key?("metadata")
+								post "metadata", NOTICE, main_channel,  JSON.generate({ "uri" => entry['uri'] })
+							end
 						end
 
 						s.each do |star|
@@ -145,42 +143,6 @@ class HatenaStarStream < Net::IRC::Server::Session
 		end
 	end
 
-	def retrive_stars(entries, n=0)
-		uri = "http://s.hatena.ne.jp/entries.json?"
-		while uri.length < 1800 and n < entries.length
-			uri << "uri=#{URI.escape(entries[n], /[^-.!~*'()\w]/n)}&"
-			n += 1
-		end
-		ret = JSON.load(@ua.get(uri).body)["entries"].inject({}) {|r,i|
-			if i["stars"].any? {|star| star.kind_of? Numeric }
-				i = JSON.load(@ua.get("http://s.hatena.ne.jp/entry.json?uri=#{URI.escape(i["uri"])}").body)["entries"].first
-			end
-			stars = []
-
-			if i["colored_stars"]
-				i["colored_stars"].each do |s|
-					s["stars"].each do |j|
-						stars << Star.new(j, s["color"])
-					end
-				end
-			end
-
-			i["stars"].each do |j|
-				star = Star.new(j)
-				if star.quote.empty? && stars.last && stars.last.name == star.name && stars.last.color == "normal"
-					stars.last.count += 1
-				else
-					stars << star
-				end
-			end
-			r.update(i["uri"] => stars)
-		}
-		if n < entries.length
-			ret.update retrive_stars(entries, n)
-		end
-		ret
-	end
-
 	def title(url)
 		uri = URI(url)
 		@ua.get(uri)
@@ -190,7 +152,11 @@ class HatenaStarStream < Net::IRC::Server::Session
 		when uri.fragment
 			fragment =  @ua.page.root.at("//*[@name = '#{uri.fragment}']") || @ua.page.root.at("//*[@id = '#{uri.fragment}']")
 
-			text = fragment.inner_text + fragment.following.text + fragment.parent.following.text
+			text =  fragment.inner_text
+			while fragment.respond_to? :parent
+				text += (fragment.next && fragment.next.text.to_s).to_s
+				fragment = fragment.parent
+			end
 		when uri.to_s =~ %r|^http://h.hatena.ne.jp/[^/]+/\d+|
 			text = @ua.page.root.at("#main .entries .entry .list-body div.body").inner_text
 		else
@@ -198,27 +164,10 @@ class HatenaStarStream < Net::IRC::Server::Session
 		end
 		text.gsub!(/\s+/, " ")
 		text.strip!
-		NKF.nkf("-w", text).split(//)[0..30].join
+		NKF.nkf("-w", text).split(//)[0..60].join
 	rescue Exception => e
 		@log.debug ["title:", e.inspect]
 		""
-	end
-
-	def login
-		@log.info "logging in as #{@real}"
-		@ua.get "https://www.hatena.ne.jp/login?backurl=http%3A%2F%2Fd.hatena.ne.jp%2F"
-		return if @ua.page.forms.empty?
-
-		form             = @ua.page.forms.first
-		form["name"]     = @real
-		form["password"] = @pass
-
-		@ua.submit(form)
-
-		unless @ua.page.forms.empty?
-			post server_name, ERR_PASSWDMISMATCH, ":Password incorrect"
-			finish
-		end
 	end
 
 	class Star < OpenStruct
@@ -234,6 +183,11 @@ class HatenaStarStream < Net::IRC::Server::Session
 			super(obj)
 			self.count = obj["count"].to_i  + 1
 			self.color = col
+		end
+
+		def ==(other)
+			self.color == other.color &&
+			self.name  == other.name
 		end
 	end
 end
