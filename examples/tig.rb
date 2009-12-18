@@ -339,6 +339,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@utf7          =
 		@httpproxy     = nil
 		@ratelimit     = RateLimit.new(150)
+		@cert_store = OpenSSL::X509::Store.new
+		@cert_store.set_default_paths
 	end
 
 	def on_user(m)
@@ -2141,7 +2143,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		http.read_timeout = read_timeout if read_timeout # 60 by default
 		if uri.is_a? URI::HTTPS
 			http.use_ssl     = true
-			http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+			http.cert_store = @cert_store
+			http.verify_mode = OpenSSL::SSL::VERIFY_PEER
 		end
 		http
 	rescue => e
