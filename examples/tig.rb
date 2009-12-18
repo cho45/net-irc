@@ -1728,7 +1728,13 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		@log.debug [req.method, uri.to_s]
-		ret = http(uri, 30, 30).request req
+		begin
+			ret = http(uri, 30, 30).request req
+		rescue OpenSSL::SSL::SSLError => e
+			@log.error e.inspect
+			log "Fatal SSL error was happened #{e.inspect}"
+			raise e.inspect
+		end
 
 		#@etags[uri.to_s] = ret["ETag"]
 
