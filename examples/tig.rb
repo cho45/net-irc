@@ -1432,7 +1432,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def check_friends
 		@follower_ids = page("followers/ids/#{@me.id}", :ids)
-		p @follower_ids
 
 		if @friends.nil?
 			@friends = page("statuses/friends/#{@me.id}", :users)
