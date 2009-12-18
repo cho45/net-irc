@@ -1606,7 +1606,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		raise "github API changed?" unless latest
 
-		is_in_local_repos = system("git rev-parse --verify #{latest} 2>/dev/null")
+		is_in_local_repos = system("git rev-parse --verify #{latest} > /dev/null 2>&1")
 		unless is_in_local_repos
 			current  = commits.map {|i| i['id'] }.index(server_version)
 			messages = commits[0..current].map {|i| i['message'] }
