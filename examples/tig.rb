@@ -38,22 +38,6 @@ Configuration example for Tiarra <http://coderepos.org/share/wiki/Tiarra>.
 		password: password on Twitter
 		# Recommended
 		name: username mentions tid
-
-		# Same as TwitterIrcGateway.exe.config.sample
-		#   (90, 360 and 300 seconds)
-		#name: username dm ratio=4:1 maxlimit=50
-		#name: username dm ratio=20:5:6 maxlimit=62 mentions
-		#
-		# <http://cheebow.info/chemt/archives/2009/04/posttwit.html>
-		#   (60, 360 and 150 seconds)
-		#name: username dm ratio=30:5:12 maxlimit=94 mentions
-		#
-		# <http://cheebow.info/chemt/archives/2009/07/api150rhtwit.html>
-		#   (36, 360 and 150 seconds)
-		#name: username dm ratio=50:5:12 maxlimit=134 mentions
-		#
-		# for Jabber
-		#name: username jabber=username@example.com:jabberpasswd
 	}
 
 ### athack
@@ -108,7 +92,7 @@ Be careful for managing password.
 
 Use IM instead of any APIs (e.g. post)
 
-### ratio=<timeline>:<dm>[:<mentions>]
+### ratio=<timeline>:<dm>[:<mentions>] (obsolete)
 
 "121:6:20" by default.
 
