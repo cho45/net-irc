@@ -2212,7 +2212,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	                    :profile_background_tile, :status)
 	Status = Struct.new(:id, :text, :source, :created_at, :truncated, :favorited, :geo,
 	                    :in_reply_to_status_id, :in_reply_to_user_id,
-	                    :in_reply_to_screen_name, :user)
+	                    :in_reply_to_screen_name, :user,
+	                    :retweeted_status)
 	DM     = Struct.new(:id, :text, :created_at,
 	                    :sender_id, :sender_screen_name, :sender,
 	                    :recipient_id, :recipient_screen_name, :recipient)
@@ -2541,3 +2542,4 @@ if __FILE__ == $0
 		Net::IRC::Server.new(opts[:host], opts[:port], TwitterIrcGateway, opts).start
 	#end
 end
+
