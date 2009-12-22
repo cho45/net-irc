@@ -1270,6 +1270,22 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	ctcp_action "o_retweet", "ort" do |target, mesg, command, args|
+		if args.empty?
+			log "/me #{command} <ID>"
+			return
+		end
+		tid = args.first
+		if status = @timeline[tid]
+			ret = api("statuses/retweet/#{status.id}")
+			log oops(ret) if ret.truncated
+			log "Status updated (RT to #{@opts.tid % tid}: #{status.text})"
+			ret.user.status = ret
+			@me = ret.user
+		end
+	end
+
+
 	ctcp_action "spam" do |target, mesg, command, args|
 		if args.empty?
 			log "/me spam <NICK>|<ID>"
@@ -1672,6 +1688,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			  | account/(?: end_session \z | update_ )
 			  | favou?ri(?: ing | tes )/create/
 			  | notifications/
+                          | statuses/retweet/
 			  | blocks/create/
 			  | report_spam )
 		}x
