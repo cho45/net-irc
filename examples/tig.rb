@@ -1277,7 +1277,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		tid = args.first
 		if status = @timeline[tid]
-			ret = api("statuses/retweet/#{status.id}")
+			ret = api("statuses/retweet/#{status.id}",{ :source => source })
 			log oops(ret) if ret.truncated
 			log "Status updated (RT to #{@opts.tid % tid}: #{status.text})"
 			ret.user.status = ret
