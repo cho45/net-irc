@@ -278,7 +278,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def available_channel_modes
-		"mnti"
+		"mntiovah"
 	end
 
 	def main_channel
@@ -940,7 +940,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		current = server_version
 		@server_version = nil
 		log "Reloaded tig.rb. New: #{server_version} <- Old: #{current}"
-		post server_name, RPL_MYINFO, @nick, "#{server_name} #{server_version} #{available_user_modes} #{available_channel_modes}"
+		initial_message
 	end
 
 	ctcp_action "call" do |target, mesg, command, args|
@@ -2213,7 +2213,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	def initial_message
 		super
 		post server_name, RPL_ISUPPORT, @nick,
-		     "PREFIX=(qov)~@%+", "CHANTYPES=#", "CHANMODES=#{available_channel_modes}",
+		     "PREFIX=(qaohv)~&@%+", "CHANTYPES=#", "CHANMODES=,,,mnti",
 		     "MODES=#{MAX_MODE_PARAMS}", "NICKLEN=15", "TOPICLEN=420", "CHANNELLEN=50",
 		     "NETWORK=Twitter",
 		     "are supported by this server"
