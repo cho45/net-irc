@@ -1860,6 +1860,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		unless str
 			status = struct.is_a?(Status) ? struct : struct.status
 			str = status.text
+                        str  = "\00310♺ \017" + str if status.retweeted_status
 			if command != PRIVMSG
 				time = Time.parse(status.created_at) rescue Time.now
 				str  = "#{time.strftime(@opts.strftime || "%m-%d %H:%M")} #{str}" # TODO: color
