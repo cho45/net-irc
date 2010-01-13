@@ -2199,9 +2199,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def permalink(struct)
-		path = struct.is_a?(Status) ? "#{struct.user.screen_name}/statuses/#{struct.id}" \
-		                            : struct.screen_name
-		"http://twitter.com/#{path}"
+		"http://twitter.com/#{struct.user.screen_name}/statuses/#{struct.id}"
 	end
 
 	def source
