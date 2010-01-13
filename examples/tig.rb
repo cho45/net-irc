@@ -1767,21 +1767,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			# Avoid Twitter's invalid JSON
 			json = ret.body.strip.sub(/\A(?:false|true)\z/, "[\\&]")
 
-			res = JSON.parse json
-			case res
-			when Hash
-				if res["error"] # and not res["response"]
-					if @error != res["error"]
-						@error = res["error"]
-						log @error
-					end
-					raise APIFailed, res["error"]
+			res = JSON.parse(json)
+			if res.is_a?(Hash) && res["error"] # and not res["response"]
+				if @error != res["error"]
+					@error = res["error"]
+					log @error
 				end
-				res = TwitterStruct.new(res)
-			when Array
-				res = res.map {|i| TwitterStruct.new(i) }
+				raise APIFailed, res["error"]
 			end
-			res
+
+			TwitterStruct.make(res)
 		when Net::HTTPNoContent,  # 204
 		     Net::HTTPNotModified # 304
 			[]
@@ -2223,23 +2218,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	class TwitterStruct
-		def initialize(obj)
-			@obj = obj.dup
-			@obj.each do |k, v|
-				case v
-				when Hash
-					@obj[k] = TwitterStruct.new(v)
-				when Array
-					@obj[k] = @obj[k].map {|i|
-						case i
-						when Hash
-							TwitterStruct.new(i)
-						else
-							i
-						end
-					}
+		def self.make(obj)
+			case obj
+			when Hash
+				obj = obj.dup
+				obj.each do |k, v|
+					obj[k] = TwitterStruct.create(v)
 				end
+				TwitterStruct.new(obj)
+			when Array
+				obj.map {|i| TwitterStruct.create(i) }
+			else
+				obj
 			end
+		end
+
+		def initialize(obj)
+			@obj = obj
 		end
 
 		def id
