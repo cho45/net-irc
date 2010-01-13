@@ -2244,15 +2244,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 
 		def hash
-			self.id.hash
+			self.id ? self.id.hash : super
 		end
 
 		def eql?(other)
-			self.id == other.id
+			self.hash == other.hash
 		end
 
 		def ==(other)
-			self.id == other.id
+			self.hash == other.hash
 		end
 
 		def method_missing(sym, *args)
