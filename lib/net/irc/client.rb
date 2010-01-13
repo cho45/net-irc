@@ -80,12 +80,6 @@ class Net::IRC::Client
 		post PONG, @prefix ? @prefix.nick : ""
 	end
 
-	# Do nothing.
-	# This is for avoiding error on calling super.
-	# So you can always call super at subclass.
-	def method_missing(name, *args)
-	end
-
 	# Call when socket connected.
 	def on_connected
 	end

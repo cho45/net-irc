@@ -158,12 +158,6 @@ class Net::IRC::Server
 			post server_name, PONG, m.params[0]
 		end
 
-		# Do nothing.
-		# This is for avoiding error on calling super.
-		# So you can always call super at subclass.
-		def method_missing(name, *args)
-		end
-
 		private
 		# Post message to server.
 		#

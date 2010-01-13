@@ -1,3 +1,9 @@
+2010-01-13  SATOH Hiroh <cho45@lowreal.net>
+
+	* Remove method_missing:
+	Defining method_missing produce big side-effects.
+	(eg. no error on undefined values)
+
 2009-10-11  SATOH Hiroh <cho45@lowreal.net>
 
 	* [new]
