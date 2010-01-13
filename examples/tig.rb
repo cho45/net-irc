@@ -2223,11 +2223,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			when Hash
 				obj = obj.dup
 				obj.each do |k, v|
-					obj[k] = TwitterStruct.create(v)
+					obj[k] = TwitterStruct.make(v)
 				end
 				TwitterStruct.new(obj)
 			when Array
-				obj.map {|i| TwitterStruct.create(i) }
+				obj.map {|i| TwitterStruct.make(i) }
 			else
 				obj
 			end
