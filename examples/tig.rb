@@ -373,7 +373,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		post server_name, MODE, main_channel, "+mto", @nick
 		post server_name, MODE, main_channel, "+q", @nick
 		if @me.status
-			@me.status.user = @me
 			post @prefix, TOPIC, main_channel, generate_status_message(@me.status.text)
 		end
 
@@ -824,10 +823,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@friends.delete_if do |friend|
 				if friend.screen_name.casecmp(nick).zero?
 					user = api("friendships/destroy/#{friend.id}")
-					if user.is_a? User
-						post prefix(user), PART, main_channel, "Removed: #{msg}"
-						@me.friends_count -= 1
-					end
+					post prefix(user), PART, main_channel, "Removed: #{msg}"
+					@me.friends_count -= 1
 				end
 			end if @friends
 		else
@@ -1498,7 +1495,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			id = @latest_id = status.id
 			next if @timeline.any? {|tid, s| s.id == id }
 
-			status.user.status = status
 			user = status.user
 			tid  = @timeline.push(status)
 			tid  = nil unless @opts.tid
@@ -1772,14 +1768,20 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			json = ret.body.strip.sub(/\A(?:false|true)\z/, "[\\&]")
 
 			res = JSON.parse json
-			if res.is_a?(Hash) and res["error"] # and not res["response"]
-				if @error != res["error"]
-					@error = res["error"]
-					log @error
+			case res
+			when Hash
+				if res["error"] # and not res["response"]
+					if @error != res["error"]
+						@error = res["error"]
+						log @error
+					end
+					raise APIFailed, res["error"]
 				end
-				raise APIFailed, res["error"]
+				res = TwitterStruct.new(res)
+			when Array
+				res = res.map {|i| TwitterStruct.new(i) }
 			end
-			res.to_tig_struct
+			res
 		when Net::HTTPNoContent,  # 204
 		     Net::HTTPNotModified # 304
 			[]
@@ -1858,7 +1860,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def message(struct, target, tid = nil, str = nil, command = PRIVMSG)
 		unless str
-			status = struct.is_a?(Status) ? struct : struct.status
+			status = struct.status || struct
 			str = status.text
                         str  = "\00310♺ \017" + str if status.retweeted_status
 			if command != PRIVMSG
@@ -1866,7 +1868,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				str  = "#{time.strftime(@opts.strftime || "%m-%d %H:%M")} #{str}" # TODO: color
 			end
 		end
-		user        = (struct.is_a?(User) ? struct : struct.user).dup
+		user        = struct.user || struct
 		screen_name = user.screen_name
 
 		user.screen_name = @nicknames[screen_name] || screen_name
@@ -2220,28 +2222,36 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		     "are supported by this server"
 	end
 
-	User   = Struct.new(:id, :name, :screen_name, :location, :description, :url,
-	                    :following, :notifications, :protected, :time_zone,
-	                    :utc_offset, :created_at, :friends_count, :followers_count,
-	                    :statuses_count, :favourites_count, :verified, :geo_enabled,
-	                    :profile_image_url, :profile_background_color, :profile_text_color,
-	                    :profile_link_color, :profile_sidebar_fill_color,
-	                    :profile_sidebar_border_color, :profile_background_image_url,
-	                    :profile_background_tile, :status)
-	Status = Struct.new(:id, :text, :source, :created_at, :truncated, :favorited, :geo,
-	                    :in_reply_to_status_id, :in_reply_to_user_id,
-	                    :in_reply_to_screen_name, :user,
-	                    :retweeted_status)
-	DM     = Struct.new(:id, :text, :created_at,
-	                    :sender_id, :sender_screen_name, :sender,
-	                    :recipient_id, :recipient_screen_name, :recipient)
-	Geo    = Struct.new(:type, :coordinates, :geometries, :geometry, :properties, :id,
-	                    :crs, :name, :href, :bbox, :features)
-	List   = Struct.new(:mode, :uri, :slug, :member_count, :full_name, :name, :id, :subscriber_count, :user)
+	class TwitterStruct
+		def initialize(obj)
+			@obj = obj.dup
+			@obj.each do |k, v|
+				case v
+				when Hash
+					@obj[k] = TwitterStruct.new(v)
+				when Array
+					@obj[k] = @obj[k].map {|i|
+						case i
+						when Hash
+							TwitterStruct.new(i)
+						else
+							i
+						end
+					}
+				end
+			end
+		end
 
-	class User
+		def id
+			@obj["id"]
+		end
+
+		def [](name)
+			@obj[name.to_s]
+		end
+
 		def hash
-			self.id
+			self.id.hash
 		end
 
 		def eql?(other)
@@ -2250,6 +2260,11 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		def ==(other)
 			self.id == other.id
+		end
+
+		def method_missing(sym, *args)
+			# XXX
+			@obj[sym.to_s]
 		end
 	end
 
@@ -2377,50 +2392,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 end
 
-class Array
-	def to_tig_struct
-		map do |v|
-			v.respond_to?(:to_tig_struct) ? v.to_tig_struct : v
-		end
-	end
-end
-
 class Hash
-	def to_tig_struct
-		if empty?
-			#warn "" if $VERBOSE
-			#raise Error
-			return nil
-		end
-
-		struct = case
-			when struct_of?(TwitterIrcGateway::User)
-				TwitterIrcGateway::User.new
-			when struct_of?(TwitterIrcGateway::Status)
-				TwitterIrcGateway::Status.new
-			when struct_of?(TwitterIrcGateway::DM)
-				TwitterIrcGateway::DM.new
-			when struct_of?(TwitterIrcGateway::Geo)
-				TwitterIrcGateway::Geo.new
-			when struct_of?(TwitterIrcGateway::List)
-				TwitterIrcGateway::List.new
-			else
-				members = keys
-				members.concat TwitterIrcGateway::User.members
-				members.concat TwitterIrcGateway::Status.members
-				members.concat TwitterIrcGateway::DM.members
-				members.concat TwitterIrcGateway::Geo.members
-				members.concat TwitterIrcGateway::List.members
-				members.map! {|m| m.to_sym }
-				members.uniq!
-				Struct.new(*members).new
-		end
-		each do |k, v|
-			struct[k.to_sym] = v.respond_to?(:to_tig_struct) ? v.to_tig_struct : v
-		end
-		struct
-	end
-
 	# { :f  => "v" }    #=> "f=v"
 	# { "f" => [1, 2] } #=> "f=1&f=2"
 	# { "f" => "" }     #=> "f="
@@ -2437,11 +2409,6 @@ class Hash
 			end
 			r
 		end.join separator
-	end
-
-	private
-	def struct_of? struct
-		(keys - struct.members.map {|m| m.to_s }).size.zero?
 	end
 end
 
