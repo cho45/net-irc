@@ -1911,7 +1911,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		longurls = URI.extract(text, %w[http https]).uniq.map do |url|
 			URI.rstrip url
 		end.reject do |url|
-			url.size < len
+			url.size < len || url =~ %r{http://(?:bit\.ly)}
 		end
 		return text if longurls.empty?
 
