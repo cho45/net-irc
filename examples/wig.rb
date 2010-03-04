@@ -340,11 +340,11 @@ class WassrIrcGateway < Net::IRC::Server::Session
 							raise ApiFailed, "#{pos} of #{nick} is not found."
 						end
 					else
-						id = st["id"] || st["rid"]
+						id = st["rid"]
 					end
 				end
 				res = api("favorites/create/#{id}", {})
-				post server_name, NOTICE, main_channel, "Fav: #{res["screen_name"]}: #{res["text"]}"
+				post server_name, NOTICE, main_channel, "Fav: #{target} (#{id}): #{res["status"]}"
 			else
 				post server_name, NOTICE, main_channel, "No such id or status #{target}"
 			end
