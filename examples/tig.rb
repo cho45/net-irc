@@ -413,7 +413,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@ratelimit.register(:check_friends, 3600)
 		@check_friends_thread = Thread.start do
 			loop do
-				sleep @rate.interval(:check_friends)
+				sleep @ratelimit.interval(:check_friends)
 				begin
 					check_friends
 				rescue APIFailed => e
