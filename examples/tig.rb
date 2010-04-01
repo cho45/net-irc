@@ -572,7 +572,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						@log.error "\t#{l}"
 					end
 				end
-				sleep @ratelimit.register(:lists_status)
+				sleep @ratelimit.interval(:lists_status)
 			end
 		end
 
