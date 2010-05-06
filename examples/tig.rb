@@ -675,7 +675,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						return
 					end
 
-					q = { :status => mesg, :source => source }
+					q = { :status => mesg }
 
 					if @opts.old_style_reply and mesg[/\A@(?>([A-Za-z0-9_]{1,15}))[^A-Za-z0-9_]/]
 						if user = friend($1) || api("users/show/#{$1}")
@@ -694,6 +694,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						q.update :long => long.to_f
 					end
 
+					p [:update, q]
 					ret = api("statuses/update", q)
 					log oops(ret) if ret.truncated
 					ret.user.status = ret
@@ -707,7 +708,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				post server_name, ERR_NOSUCHNICK, target, "No such nick/channel"
 			end
 		rescue => e
-			@log.error [retry_count, e.inspect].inspect
+			@log.error [retry_count, e.inspect, e.backtrace].inspect
 			if retry_count > 0
 				retry_count -= 1
 				@log.debug "Retry to setting status..."
@@ -1723,7 +1724,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def require_post?(path, query)
-		case path
+		case path.sub(/\.json$/, '')
 		when %r{
 			\A/
 			(?: status(?:es)?/update \z
@@ -1756,20 +1757,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		path  = '/' + path
 		path += ".json" if path != "users/username_available"
-		path += '?' + query.to_query_str unless query.empty?
 
 		header      = {}
 		credentials = authenticate ? [@real, @pass] : nil
 
-		@log.debug path
 		ret = nil
 		begin
 			case
 				when path.include?("/destroy/")
+					path += '?' + query.to_query_str unless query.empty?
+					@log.debug [:delete, path]
 					ret = @access_token.delete(path, header)
 				when require_post?(path, query)
-					ret = @access_token.post(path, query.to_query_str, header)
+					@log.debug [:post, path]
+					ret = @access_token.post(path, query, header)
 				else
+					path += '?' + query.to_query_str unless query.empty?
+					@log.debug [:get, path]
 					ret = @access_token.get(path, header)
 			end
 		rescue OpenSSL::SSL::SSLError => e
