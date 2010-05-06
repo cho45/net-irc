@@ -1403,9 +1403,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					   "##{list.slug}" : 
 					   "##{list.user.screen_name}^#{list.slug}"
 				members = page("1/#{@me.screen_name}/#{list.slug}/members", :users, true)
-				log "Miss match member_count '%s', lists:%d vs members:%s" % [ list.slug, list.member_count, members.size ] unless list.member_count == members.size
+				@log.debug "Miss match member_count '%s', lists:%d vs members:%s" % [ list.slug, list.member_count, members.size ] unless list.member_count == members.size
 				if list.member_count - members.size > 10
-					log "Miss match count is over 10. skip this list: #{list.slug}"
+					@log.debug "Miss match count is over 10. skip this list: #{list.slug}"
 					next
 				end
 
