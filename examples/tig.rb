@@ -240,6 +240,7 @@ require "yaml"
 require "pathname"
 require "ostruct"
 require "json"
+require "oauth"
 
 begin
 	require "iconv"
@@ -250,6 +251,9 @@ end
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
+	CONSUMER_KEY    = 'ZxRg3rGeqE68Tqkz9nhmA'
+	CONSUMER_SECRET = 'GaJsr2jfjUYIHaPc01UqiqMlvUJPCL5z5uPQM5T418'
+
 	@@ctcp_action_commands = []
 
 	class << self
@@ -349,6 +353,32 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			$&.sub(/[^:@]+(?=@)/, "********")
 		end if @opts.httpproxy
 
+		@consumer = OAuth::Consumer.new(
+			CONSUMER_KEY,
+			CONSUMER_SECRET,
+			:site => 'https://twitter.com'
+		)
+
+		begin
+			@access_token = @consumer.get_access_token(nil, {}, {
+				:x_auth_mode     => "client_auth",
+				:x_auth_username => @real,
+				:x_auth_password => @pass,
+			})
+			on_authorized
+		rescue OAuth::Unauthorized
+			log 'Failed trying xAuth'
+			oauth_request
+		end
+	end
+
+	def oauth_request
+		@request_token = @consumer.get_request_token
+		log 'Access following URL: %s' % @request_token.authorize_url
+		log 'and send /me oauth <PIN>'
+	end
+
+	def on_authorized
 		retry_count = 0
 		begin
 			@me = api("account/update_profile") #api("account/verify_credentials")
@@ -929,6 +959,24 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		log e.inspect
 		e.backtrace.each do |l|
 			@log.error "\t#{l}"
+		end
+	end
+
+	ctcp_action "oauth" do |target, mesg, command, args|
+		if args.length == 1
+			pin = args.first
+			begin
+				@access_token = @request_token.get_access_token(
+					:oauth_verifier => pin
+				)
+				log "Congrats! OAuth Verified: #{@access_token.params[:screen_name]}"
+				on_authorized
+			rescue OAuth::Unauthorized
+				log "Invalid PIN was inputted. Please retry"
+				oauth_request
+			end
+		else
+			oauth_request
 		end
 	end
 
@@ -1674,10 +1722,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
-	def require_post?(path,query)
+	def require_post?(path, query)
 		case path
 		when %r{
-			\A
+			\A/
 			(?: status(?:es)?/update \z
 			  | direct_messages/new \z
 			  | friendships/create/
@@ -1690,7 +1738,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		}x
 			true
 		when %r{
-			\A
+			\A/
 			(?: 1/#{@me.screen_name} )
 		}x
 			query.key? 'name' or query.key? '_method' or query.key? 'id'
@@ -1706,27 +1754,24 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		authenticate = opts.fetch(:authenticate, true)
 
-		uri = api_base(authenticate)
-		uri.path += path
-		uri.path += ".json" if path != "users/username_available"
-		uri.query = query.to_query_str unless query.empty?
+		path  = '/' + path
+		path += ".json" if path != "users/username_available"
+		path += '?' + query.to_query_str unless query.empty?
 
 		header      = {}
 		credentials = authenticate ? [@real, @pass] : nil
-		req         = case
-			when path.include?("/destroy/")
-				http_req :delete, uri, header, credentials
-			when require_post?(path,query)
-				http_req :post,   uri, header, credentials
-			#when require_put?(path)
-			#	http_req :put,    uri, header, credentials
-			else
-				http_req :get,    uri, header, credentials
-		end
 
-		@log.debug [req.method, uri.to_s]
+		@log.debug path
+		ret = nil
 		begin
-			ret = http(uri, 30, 30).request req
+			case
+				when path.include?("/destroy/")
+					ret = @access_token.delete(path, header)
+				when require_post?(path, query)
+					ret = @access_token.post(path, query.to_query_str, header)
+				else
+					ret = @access_token.get(path, header)
+			end
 		rescue OpenSSL::SSL::SSLError => e
 			@log.error e.inspect
 			log "Fatal SSL error was happened #{e.inspect}"
