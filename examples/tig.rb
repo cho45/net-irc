@@ -1471,7 +1471,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				# TODO tid
 				message(s, name, nil, nil, command)
 			end
-			channel[:last_id] = res.first.id
+			channel[:last_id] = res.first.id if res.first
 		end
 	end
 
