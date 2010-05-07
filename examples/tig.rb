@@ -333,6 +333,108 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			$&.sub(/[^:@]+(?=@)/, "********")
 		end if @opts.httpproxy
 
+		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
+		                           @opts.shuffled_tmap || false)
+
+		@chirp_thread = Thread.start do
+			begin
+				uri = URI.parse('http://chirpstream.twitter.com/2b/user.json')
+				req = Net::HTTP::Get.new(uri.request_uri)
+				req.basic_auth(@nick, @pass)
+				Net::HTTP.start(uri.host, uri.port) do |http|
+					http.request(req) do |res|
+						raise res.code unless res.code.to_i == 200
+						buf = ""
+						res.read_body do |str|
+							buf << str
+							buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
+								data = JSON.parse(chunk) rescue {}
+								struct = TwitterStruct.make(data)
+
+								begin
+									case
+									when data['text']
+										status = struct
+										id = @latest_id = status.id
+										unless @timeline.any? {|tid, s| s.id == id }
+											user = status.user
+											tid  = @timeline.push(status)
+											tid  = nil unless @opts.tid
+
+											if user.id == @me.id
+												mesg = generate_status_message(status.text)
+												mesg << " " << @opts.tid % tid if tid
+												post @prefix, TOPIC, main_channel, mesg
+
+												@me = user
+											else
+												if @friends
+													b = false
+													@friends.each_with_index do |friend, i|
+														if b = friend.id == user.id
+															if friend.screen_name != user.screen_name
+																post prefix(friend), NICK, user.screen_name
+															end
+															@friends[i] = user
+															break
+														end
+													end
+													unless b
+														join main_channel, [user]
+														@friends << user
+														@me.friends_count += 1
+													end
+												end
+
+												message(status, main_channel, tid, nil, PRIVMSG)
+											end
+											@channels.each do |name, channel|
+												if channel[:members].find{|m| m.screen_name == user.screen_name }
+													message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
+												end
+											end
+										end
+									when data['friends']
+									when data['delete']
+										# TODO
+									when data['event'] == 'follow'
+										message(struct, main_channel, nil, "\00310follow\017 => http://twitter.com/%s" % [
+											data['target']['screen_name']
+										])
+									when data['event'] == 'retweet'
+										# status event include this event
+									when data['event'] == 'favorite'
+										message(struct, main_channel, nil, "\00307favorite\017 => http://twitter.com/%s : %s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text']
+										])
+									when data['event'] == 'unfavorite'
+										message(struct, main_channel, nil, "\00305unfavorite =>\017 http://twitter.com/%s : %s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text']
+										])
+									else
+									end
+								rescue Exception => e
+									@log.error e.inspect
+									e.backtrace.each do |l|
+										@log.error "\t#{l}"
+									end
+								end
+								''
+							end
+						end
+					end
+				end
+			rescue Exception => e
+				@log.error e.inspect
+				e.backtrace.each do |l|
+					@log.error "\t#{l}"
+				end
+				retry
+			end
+		end
+
 		@consumer = OAuth::Consumer.new(
 			CONSUMER_KEY,
 			CONSUMER_SECRET,
@@ -419,9 +521,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			end
 		end
 
-		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
-		                           @opts.shuffled_tmap || false)
-
 		if @opts.clientspoofing
 			update_sources
 		else
@@ -450,27 +549,29 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			sleep @opts.check_updates_interval || 86400
 		end
 
-		@ratelimit.register(:timeline, 30)
-		@check_timeline_thread = Thread.start do
-			sleep 2 * (@me.friends_count / 100.0).ceil
-			sleep 10
+		unless @chirp_thread
+			@ratelimit.register(:timeline, 30)
+			@check_timeline_thread = Thread.start do
+				sleep 2 * (@me.friends_count / 100.0).ceil
+				sleep 10
 
-			loop do
-				begin
-					if check_timeline
-						@ratelimit.incr(:timeline)
-					else
-						@ratelimit.decr(:timeline)
+				loop do
+					begin
+						if check_timeline
+							@ratelimit.incr(:timeline)
+						else
+							@ratelimit.decr(:timeline)
+						end
+					rescue APIFailed => e
+						@log.error e.inspect
+					rescue Exception => e
+						@log.error e.inspect
+						e.backtrace.each do |l|
+							@log.error "\t#{l}"
+						end
 					end
-				rescue APIFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
+					sleep @ratelimit.interval(:timeline)
 				end
-				sleep @ratelimit.interval(:timeline)
 			end
 		end
 
@@ -576,6 +677,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_updates_thread.kill      rescue nil
 		@check_lists_thread.kill        rescue nil
 		@check_lists_status_thread.kill rescue nil
+		@chirp_thread.kill              rescue nil
 	end
 
 	def on_privmsg(m)
@@ -1828,7 +1930,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				str  = "#{time.strftime(@opts.strftime || "%m-%d %H:%M")} #{str}" # TODO: color
 			end
 		end
-		user        = struct.user || struct
+		user        = struct.user || (struct.source && struct.source.screen_name && struct.source)|| struct
 		screen_name = user.screen_name
 
 		user.screen_name = @nicknames[screen_name] || screen_name
