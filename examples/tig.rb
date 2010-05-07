@@ -76,22 +76,6 @@ Apply ID to each message for make favorites by CTCP ACTION.
 	14 => grey
 	15 => lightgrey    silver
 
-### jabber=<jid>:<pass>
-
-If `jabber=<jid>:<pass>` option specified,
-use Jabber to get friends timeline.
-
-You must setup im notifing settings in the site and
-install "xmpp4r-simple" gem.
-
-	$ sudo gem install xmpp4r-simple
-
-Be careful for managing password.
-
-### alwaysim
-
-Use IM instead of any APIs (e.g. post)
-
 ### ratio=<timeline>:<dm>[:<mentions>] (obsolete)
 
 "121:6:20" by default.
@@ -297,10 +281,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		"#{@opts.api_source || "tigrb"}"
 	end
 
-	def jabber_bot_id
-		"twitter@twitter.com"
-	end
-
 	def hourly_limit
 		150
 	end
@@ -406,24 +386,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			post @prefix, TOPIC, main_channel, generate_status_message(@me.status.text)
 		end
 
-		if @opts.jabber
-			jid, pass = @opts.jabber.split(":", 2)
-			@opts.jabber.replace("jabber=#{jid}:********")
-			if jabber_bot_id
-				begin
-					require "xmpp4r-simple"
-					start_jabber(jid, pass)
-				rescue LoadError
-					log "Failed to start Jabber."
-					log 'Installl "xmpp4r-simple" gem or check your ID/pass.'
-					finish
-				end
-			else
-				@opts.delete_field :jabber
-				log "This gateway does not support Jabber bot."
-			end
-		end
-
 		log "Client options: #{@opts.marshal_dump.inspect}"
 		@log.info "Client options: #{@opts.inspect}"
 
@@ -456,8 +418,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		end
-
-		return if @opts.jabber
 
 		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
 		                           @opts.shuffled_tmap || false)
@@ -616,8 +576,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_updates_thread.kill      rescue nil
 		@check_lists_thread.kill        rescue nil
 		@check_lists_status_thread.kill rescue nil
-		@im_thread.kill                 rescue nil
-		@im.disconnect                  rescue nil
 	end
 
 	def on_privmsg(m)
@@ -663,44 +621,39 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		begin
 			case
 			when target.ch?
-				if @opts.alwaysim and @im and @im.connected? # in Jabber mode, using Jabber post
-					ret = @im.deliver(jabber_bot_id, mesg)
-					post @prefix, TOPIC, main_channel, mesg
-				else
-					previous = @me.status
-					if previous and
-					   ((Time.now - Time.parse(previous.created_at)).to_i < 60 rescue true) and
-					   mesg.strip == previous.text
-						log "You can't submit the same status twice in a row."
-						return
-					end
+				previous = @me.status
+				if previous and
+				   ((Time.now - Time.parse(previous.created_at)).to_i < 60 rescue true) and
+				   mesg.strip == previous.text
+					log "You can't submit the same status twice in a row."
+					return
+				end
 
-					q = { :status => mesg }
+				q = { :status => mesg }
 
-					if @opts.old_style_reply and mesg[/\A@(?>([A-Za-z0-9_]{1,15}))[^A-Za-z0-9_]/]
-						if user = friend($1) || api("users/show/#{$1}")
-							unless user.status
-								user = api("users/show/#{user.id}", {},
-								           { :authenticate => user.protected })
-							end
-							if user.status
-								q.update :in_reply_to_status_id => user.status.id
-							end
+				if @opts.old_style_reply and mesg[/\A@(?>([A-Za-z0-9_]{1,15}))[^A-Za-z0-9_]/]
+					if user = friend($1) || api("users/show/#{$1}")
+						unless user.status
+							user = api("users/show/#{user.id}", {},
+									   { :authenticate => user.protected })
+						end
+						if user.status
+							q.update :in_reply_to_status_id => user.status.id
 						end
 					end
-					if @opts.ll
-						lat, long = @opts.ll.split(",", 2)
-						q.update :lat  => lat.to_f
-						q.update :long => long.to_f
-					end
-
-					p [:update, q]
-					ret = api("statuses/update", q)
-					log oops(ret) if ret.truncated
-					ret.user.status = ret
-					@me = ret.user
-					log "Status updated"
 				end
+				if @opts.ll
+					lat, long = @opts.ll.split(",", 2)
+					q.update :lat  => lat.to_f
+					q.update :long => long.to_f
+				end
+
+				p [:update, q]
+				ret = api("statuses/update", q)
+				log oops(ret) if ret.truncated
+				ret.user.status = ret
+				@me = ret.user
+				log "Status updated"
 			when target.screen_name? # Direct message
 				ret = api("direct_messages/new", { :screen_name => target, :text => mesg })
 				post server_name, NOTICE, @nick, "Your direct message has been sent to #{target}."
@@ -1684,43 +1637,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		post server_name, MODE, channel, "+#{params.map {|m,_| m }.join}", *params.map {|_,n| n} unless params.empty?
 		users
-	end
-
-	def start_jabber(jid, pass)
-		@log.info "Logging-in with #{jid} -> jabber_bot_id: #{jabber_bot_id}"
-		@im = Jabber::Simple.new(jid, pass)
-		@im.add(jabber_bot_id)
-		@im_thread = Thread.start do
-			require "cgi"
-
-			loop do
-				begin
-					@im.received_messages.each do |msg|
-						@log.debug [msg.from, msg.body].inspect
-						if msg.from.strip == jabber_bot_id
-							# Twitter -> 'id: msg'
-							body = msg.body.sub(/\A(.+?)(?:\(([^()]+)\))?: /, "")
-							body = decode_utf7(body)
-
-							if Regexp.last_match
-								nick, id = Regexp.last_match.captures
-								body = untinyurl(CGI.unescapeHTML(body))
-								user = nick
-								nick = id || nick
-								nick = @nicknames[nick] || nick
-								post "#{nick}!#{user}@#{api_base.host}", PRIVMSG, main_channel, body
-							end
-						end
-					end
-				rescue Exception => e
-					@log.error "Error on Jabber loop: #{e.inspect}"
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep 1
-			end
-		end
 	end
 
 	def require_post?(path, query)
