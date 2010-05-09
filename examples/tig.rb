@@ -398,20 +398,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 									when data['delete']
 										# TODO
 									when data['event'] == 'follow'
-										message(struct, main_channel, nil, "\00310follow\017 => http://twitter.com/%s" % [
+										message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
+											data['target']['screen_name'],
 											data['target']['screen_name']
 										])
 									when data['event'] == 'retweet'
 										# status event include this event
 									when data['event'] == 'favorite'
-										message(struct, main_channel, nil, "\00307favorite\017 => http://twitter.com/%s : %s" % [
+										message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
 											data['target_object']['user']['screen_name'],
-											data['target_object']['text']
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
 										])
 									when data['event'] == 'unfavorite'
-										message(struct, main_channel, nil, "\00305unfavorite =>\017 http://twitter.com/%s : %s" % [
+										message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
 											data['target_object']['user']['screen_name'],
-											data['target_object']['text']
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
 										])
 									else
 									end
