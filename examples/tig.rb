@@ -339,6 +339,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		                           @opts.shuffled_tmap || false)
 
 		@chirp_thread = Thread.start do
+			retry_count = 0
 			begin
 				uri = URI.parse('http://chirpstream.twitter.com/2b/user.json')
 				req = Net::HTTP::Get.new(uri.request_uri)
@@ -347,6 +348,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					http.request(req) do |res|
 						raise UnauthorizedException if res.code.to_i == 401
 						raise res.code unless res.code.to_i == 200
+
+						retry_count = 0
 						buf = ""
 						res.read_body do |str|
 							buf << str
@@ -439,7 +442,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				e.backtrace.each do |l|
 					@log.error "\t#{l}"
 				end
-				retry
+				sleep 1
+				retry_count += 1
+				if retry_count < 3
+					retry
+				else
+					@chirp_thread = nil
+					on_disconnected
+					on_authorized
+				end
 			end
 		end
 
