@@ -338,118 +338,120 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
 		                           @opts.shuffled_tmap || false)
 
-		@chirp_thread = Thread.start do
-			retry_count = 0
-			begin
-				uri = URI.parse('http://chirpstream.twitter.com/2b/user.json')
-				req = Net::HTTP::Get.new(uri.request_uri)
-				req.basic_auth(@nick, @pass)
-				Net::HTTP.start(uri.host, uri.port) do |http|
-					http.request(req) do |res|
-						raise UnauthorizedException if res.code.to_i == 401
-						raise res.code unless res.code.to_i == 200
+		if @opts.chirp
+			@chirp_thread = Thread.start do
+				retry_count = 0
+				begin
+					uri = URI.parse('http://chirpstream.twitter.com/2b/user.json')
+					req = Net::HTTP::Get.new(uri.request_uri)
+					req.basic_auth(@nick, @pass)
+					Net::HTTP.start(uri.host, uri.port) do |http|
+						http.request(req) do |res|
+							raise UnauthorizedException if res.code.to_i == 401
+							raise res.code unless res.code.to_i == 200
 
-						retry_count = 0
-						buf = ""
-						res.read_body do |str|
-							buf << str
-							buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
-								data = JSON.parse(chunk) rescue {}
-								struct = TwitterStruct.make(data)
+							retry_count = 0
+							buf = ""
+							res.read_body do |str|
+								buf << str
+								buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
+									data = JSON.parse(chunk) rescue {}
+									struct = TwitterStruct.make(data)
 
-								begin
-									case
-									when data['text']
-										status = struct
-										id = @latest_id = status.id
-										unless @timeline.any? {|tid, s| s.id == id }
-											user = status.user
-											tid  = @timeline.push(status)
-											tid  = nil unless @opts.tid
+									begin
+										case
+										when data['text']
+											status = struct
+											id = @latest_id = status.id
+											unless @timeline.any? {|tid, s| s.id == id }
+												user = status.user
+												tid  = @timeline.push(status)
+												tid  = nil unless @opts.tid
 
-											if user.id == @me.id
-												mesg = generate_status_message(status.text)
-												mesg << " " << @opts.tid % tid if tid
-												post @prefix, TOPIC, main_channel, mesg
+												if user.id == @me.id
+													mesg = generate_status_message(status.text)
+													mesg << " " << @opts.tid % tid if tid
+													post @prefix, TOPIC, main_channel, mesg
 
-												@me = user
-											else
-												if @friends
-													b = false
-													@friends.each_with_index do |friend, i|
-														if b = friend.id == user.id
-															if friend.screen_name != user.screen_name
-																post prefix(friend), NICK, user.screen_name
+													@me = user
+												else
+													if @friends
+														b = false
+														@friends.each_with_index do |friend, i|
+															if b = friend.id == user.id
+																if friend.screen_name != user.screen_name
+																	post prefix(friend), NICK, user.screen_name
+																end
+																@friends[i] = user
+																break
 															end
-															@friends[i] = user
-															break
+														end
+														unless b
+															join main_channel, [user]
+															@friends << user
+															@me.friends_count += 1
 														end
 													end
-													unless b
-														join main_channel, [user]
-														@friends << user
-														@me.friends_count += 1
+
+													message(status, main_channel, tid, nil, PRIVMSG)
+												end
+												@channels.each do |name, channel|
+													if channel[:members].find{|m| m.screen_name == user.screen_name }
+														message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
 													end
 												end
-
-												message(status, main_channel, tid, nil, PRIVMSG)
 											end
-											@channels.each do |name, channel|
-												if channel[:members].find{|m| m.screen_name == user.screen_name }
-													message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
-												end
-											end
+										when data['friends']
+										when data['delete']
+											# TODO
+										when data['event'] == 'follow'
+											message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
+												data['target']['screen_name'],
+												data['target']['screen_name']
+											])
+										when data['event'] == 'retweet'
+											# status event include this event
+										when data['event'] == 'favorite'
+											message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
+												data['target_object']['user']['screen_name'],
+												data['target_object']['text'],
+												data['target_object']['user']['screen_name']
+											])
+										when data['event'] == 'unfavorite'
+											message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
+												data['target_object']['user']['screen_name'],
+												data['target_object']['text'],
+												data['target_object']['user']['screen_name']
+											])
+										else
 										end
-									when data['friends']
-									when data['delete']
-										# TODO
-									when data['event'] == 'follow'
-										message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
-											data['target']['screen_name'],
-											data['target']['screen_name']
-										])
-									when data['event'] == 'retweet'
-										# status event include this event
-									when data['event'] == 'favorite'
-										message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
-											data['target_object']['user']['screen_name'],
-											data['target_object']['text'],
-											data['target_object']['user']['screen_name']
-										])
-									when data['event'] == 'unfavorite'
-										message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
-											data['target_object']['user']['screen_name'],
-											data['target_object']['text'],
-											data['target_object']['user']['screen_name']
-										])
-									else
+									rescue Exception => e
+										@log.error e.inspect
+										e.backtrace.each do |l|
+											@log.error "\t#{l}"
+										end
 									end
-								rescue Exception => e
-									@log.error e.inspect
-									e.backtrace.each do |l|
-										@log.error "\t#{l}"
-									end
+									''
 								end
-								''
 							end
 						end
 					end
-				end
-			rescue UnauthorizedException => e
-				@chirp_thread = nil
-			rescue Exception => e
-				@log.error e.inspect
-				e.backtrace.each do |l|
-					@log.error "\t#{l}"
-				end
-				sleep 1
-				retry_count += 1
-				if retry_count < 3
-					retry
-				else
+				rescue UnauthorizedException => e
 					@chirp_thread = nil
-					on_disconnected
-					on_authorized
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+					sleep 1
+					retry_count += 1
+					if retry_count < 3
+						retry
+					else
+						@chirp_thread = nil
+						on_disconnected
+						on_authorized
+					end
 				end
 			end
 		end
