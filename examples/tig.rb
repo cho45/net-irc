@@ -238,6 +238,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	CONSUMER_KEY    = 'ZxRg3rGeqE68Tqkz9nhmA'
 	CONSUMER_SECRET = 'GaJsr2jfjUYIHaPc01UqiqMlvUJPCL5z5uPQM5T418'
 
+	class UnauthorizedException < Exception; end
+
 	@@ctcp_action_commands = []
 
 	class << self
@@ -343,6 +345,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				req.basic_auth(@nick, @pass)
 				Net::HTTP.start(uri.host, uri.port) do |http|
 					http.request(req) do |res|
+						raise UnauthorizedException if res.code.to_i == 401
 						raise res.code unless res.code.to_i == 200
 						buf = ""
 						res.read_body do |str|
@@ -429,6 +432,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 						end
 					end
 				end
+			rescue UnauthorizedException => e
+				@chirp_thread = nil
 			rescue Exception => e
 				@log.error e.inspect
 				e.backtrace.each do |l|
