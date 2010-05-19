@@ -57,24 +57,36 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 
 		@retrieve_thread = Thread.start do
 			loop do
-				@log.info 'retrieveing feed...'
-				doc = LibXML::XML::Document.file("http://github.com/#{@real}.private.atom?token=#{@pass}")
-				ns  = %w|a:http://www.w3.org/2005/Atom|
-				doc.find('/a:feed/a:entry', ns).each do |n|
-					datetime = Time.parse n.find('string(a:published)', ns)
-					next if datetime < @last_retrieved
+				begin
+					@log.info 'retrieveing feed...'
+					doc = LibXML::XML::Document.file("http://github.com/#{@real}.private.atom?token=#{@pass}")
+					ns  = %w|a:http://www.w3.org/2005/Atom|
+					entries = []
+					doc.find('/a:feed/a:entry', ns).each do |n|
+						datetime = Time.parse n.find('string(a:published)', ns)
+						next if datetime < @last_retrieved
 
-					id       = n.find('string(a:id)', ns)
-					title    = n.find('string(a:title)', ns)
-					author   = n.find('string(a:author/a:name)', ns)
-					link     = n.find('string(a:link/@href)', ns)
+						entries << {
+							:id       => n.find('string(a:id)', ns),
+							:title    => n.find('string(a:title)', ns),
+							:author   => n.find('string(a:author/a:name)', ns),
+							:link     => n.find('string(a:link/@href)', ns),
+						}
+					end
 
-					post author, PRIVMSG, main_channel, "#{title} \00314#{link}\017"
+					entries.reverse_each do |entry|
+						post entry[:author], PRIVMSG, main_channel, "#{entry[:title]} \00314#{entry[:link]}\017"
+					end
+
+					@last_retrieved = Time.now
+					@log.info 'sleep'
+					sleep 30
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
 				end
-
-				@last_retrieved = Time.now
-				@log.info 'sleep'
-				sleep 30
 			end
 		end
 	end
