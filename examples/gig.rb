@@ -21,6 +21,16 @@ require "ostruct"
 require 'time'
 
 class ServerLogIrcGateway < Net::IRC::Server::Session
+	EVENTS = {
+		'DownloadEvent' => '6',
+		'GistEvent'     => '10',
+		'WatchEvent'    => '15',
+		'FollowEvent'   => '15',
+		'CreateEvent'   => '13',
+		'ForkEvent'     => '3',
+		'PushEvent'     => '14',
+	}
+
 	def server_name
 		"github"
 	end
@@ -74,7 +84,9 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 
 					entries.reverse_each do |entry|
 						next if entry[:datetime] <= @last_retrieved
-						post entry[:author], PRIVMSG, main_channel, "#{entry[:title]} \00314#{entry[:link]}\017"
+						type = entry[:id][%r|tag:github.com,2008:(.+?)/\d+|, 1]
+						post entry[:author], PRIVMSG, main_channel,
+							"\003#{EVENTS[type] || '5'}#{entry[:title]}\017 \00314#{entry[:link]}\017"
 					end
 
 					@last_retrieved = entries.first[:datetime]
