@@ -63,10 +63,8 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 					ns  = %w|a:http://www.w3.org/2005/Atom|
 					entries = []
 					doc.find('/a:feed/a:entry', ns).each do |n|
-						datetime = Time.parse n.find('string(a:published)', ns)
-						next if datetime < @last_retrieved
-
 						entries << {
+							:datetime => Time.parse(n.find('string(a:published)', ns)),
 							:id       => n.find('string(a:id)', ns),
 							:title    => n.find('string(a:title)', ns),
 							:author   => n.find('string(a:author/a:name)', ns),
@@ -75,10 +73,11 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 					end
 
 					entries.reverse_each do |entry|
+						next if entry[:datetime] <= @last_retrieved
 						post entry[:author], PRIVMSG, main_channel, "#{entry[:title]} \00314#{entry[:link]}\017"
 					end
 
-					@last_retrieved = Time.now
+					@last_retrieved = entries.first[:datetime]
 					@log.info 'sleep'
 					sleep 30
 				rescue Exception => e
