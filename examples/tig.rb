@@ -235,8 +235,8 @@ end
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
-	CONSUMER_KEY    = 'ZxRg3rGeqE68Tqkz9nhmA'
-	CONSUMER_SECRET = 'GaJsr2jfjUYIHaPc01UqiqMlvUJPCL5z5uPQM5T418'
+	CONSUMER_KEY    = 'D0HAkxVRFhOm1tx7QwUcGA'
+	CONSUMER_SECRET = 'u9tcglo9QHVGRfQx3DCaYbtz0aQfsLuISKpjdiC2h4'
 
 	class UnauthorizedException < Exception; end
 
@@ -338,7 +338,220 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
 		                           @opts.shuffled_tmap || false)
 
-		if @opts.chirp
+		@consumer = OAuth::Consumer.new(
+			CONSUMER_KEY,
+			CONSUMER_SECRET,
+			:site => 'https://twitter.com'
+		)
+
+		begin
+			@access_token = @consumer.get_access_token(nil, {}, {
+				:x_auth_mode     => "client_auth",
+				:x_auth_username => @real,
+				:x_auth_password => @pass,
+			})
+			on_authorized
+		rescue OAuth::Unauthorized
+			log 'Failed trying xAuth'
+			oauth_request
+		end
+	end
+
+	def oauth_request
+		@request_token = @consumer.get_request_token
+		log 'Access following URL: %s' % @request_token.authorize_url
+		log 'and send /me oauth <PIN>'
+	end
+
+	def on_authorized
+		retry_count = 0
+		begin
+			@me = api("account/update_profile") #api("account/verify_credentials")
+		rescue APIFailed => e
+			@log.error e.inspect
+			sleep 1
+			retry_count += 1
+			retry if retry_count < 3
+			log "Failed to access API 3 times." <<
+			    " Please check your username/email and password combination, " <<
+			    " Twitter Status <http://status.twitter.com/> and try again later."
+			finish
+		end
+
+		@prefix = prefix(@me)
+		@user   = @prefix.user
+		@host   = @prefix.host
+
+		#post NICK, @me.screen_name if @nick != @me.screen_name
+		post server_name, MODE, @nick, "+o"
+		post @prefix, JOIN, main_channel
+		post server_name, MODE, main_channel, "+mto", @nick
+		post server_name, MODE, main_channel, "+q", @nick
+		if @me.status
+			post @prefix, TOPIC, main_channel, generate_status_message(@me.status.text)
+		end
+
+		log "Client options: #{@opts.marshal_dump.inspect}"
+		@log.info "Client options: #{@opts.inspect}"
+
+		@opts.tid = begin
+			c = @opts.tid # expect: 0..15, true, "0,1"
+			b = nil
+			c, b = c.split(",", 2).map {|i| i.to_i } if c.respond_to? :split
+			c = 10 unless (0 .. 15).include? c # 10: teal
+			if (0 .. 15).include?(b)
+				"\003%.2d,%.2d[%%s]\017" % [c, b]
+			else
+				"\003%.2d[%%s]\017"      % c
+			end
+		end if @opts.tid
+
+		check_friends
+		@ratelimit.register(:check_friends, 3600)
+		@check_friends_thread = Thread.start do
+			loop do
+				sleep @ratelimit.interval(:check_friends)
+				begin
+					check_friends
+				rescue APIFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+			end
+		end
+
+		if @opts.clientspoofing
+			update_sources
+		else
+			@sources = [api_source]
+		end
+
+		start_timeline_thread(@opts.chirp)
+
+		update_redundant_suffix
+		@check_updates_thread = Thread.start do
+			sleep 30
+
+			loop do
+				begin
+					@log.info "check_updates"
+					update_redundant_suffix
+					check_updates
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep 0.01 * (90 + rand(21)) *
+				      (@opts.check_updates_interval || 86400) # 0.9 ... 1.1 day
+			end
+
+			sleep @opts.check_updates_interval || 86400
+		end
+
+		@ratelimit.register(:dm, 600)
+		@check_dms_thread = Thread.start do
+			loop do
+				begin
+					if check_direct_messages
+						@ratelimit.incr(:dm)
+					else
+						@ratelimit.decr(:dm)
+					end
+				rescue APIFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep @ratelimit.interval(:dm)
+			end
+		end if @opts.dm
+
+		@ratelimit.register(:mentions, 180)
+		@check_mentions_thread = Thread.start do
+			sleep @ratelimit.interval(:timeline)
+
+			loop do
+				begin
+					if check_mentions
+						@ratelimit.incr(:mentions)
+					else
+						@ratelimit.decr(:mentions)
+					end
+				rescue APIFailed => e
+					@log.error e.inspect
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep @ratelimit.interval(:mentions)
+			end
+		end if @opts.mentions
+
+		@ratelimit.register(:lists, 60 * 60)
+		@check_lists_thread = Thread.start do
+			sleep 60
+			Thread.current[:last_updated] = Time.at(0)
+			loop do
+				begin
+					@log.info "LISTS update now..."
+					if check_lists
+						@ratelimit.incr(:lists)
+					else
+						@ratelimit.decr(:lists)
+					end
+					Thread.current[:last_updated] = Time.now
+
+					sleep @ratelimit.interval(:lists)
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+					sleep 60
+				end
+			end
+		end
+
+		@ratelimit.register(:lists_status, 60 * 5)
+		@check_lists_status_thread = Thread.start do
+			Thread.current[:last_updated] = Time.at(0)
+			loop do
+				begin
+					@log.info "lists/status update now... #{@channels.size}"
+					## TODO 各リストにつき limit が必要
+					if check_lists_status
+						@ratelimit.incr(:lists_status)
+					else
+						@ratelimit.decr(:lists_status)
+					end
+					Thread.current[:last_updated] = Time.now
+				rescue Exception => e
+					@log.error e.inspect
+					e.backtrace.each do |l|
+						@log.error "\t#{l}"
+					end
+				end
+				sleep @ratelimit.interval(:lists_status)
+			end
+		end
+	end
+
+	def start_timeline_thread(chirp=false)
+		@log.info "start_timeline_thread: chirp=#{chirp}"
+		@check_timeline_thread.kill rescue nil
+		@chirp_thread.kill rescue nil
+		if chirp
 			@chirp_thread = Thread.start do
 				retry_count = 0
 				begin
@@ -454,123 +667,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					end
 				end
 			end
-		end
-
-		@consumer = OAuth::Consumer.new(
-			CONSUMER_KEY,
-			CONSUMER_SECRET,
-			:site => 'https://twitter.com'
-		)
-
-		begin
-			@access_token = @consumer.get_access_token(nil, {}, {
-				:x_auth_mode     => "client_auth",
-				:x_auth_username => @real,
-				:x_auth_password => @pass,
-			})
-			on_authorized
-		rescue OAuth::Unauthorized
-			log 'Failed trying xAuth'
-			oauth_request
-		end
-	end
-
-	def oauth_request
-		@request_token = @consumer.get_request_token
-		log 'Access following URL: %s' % @request_token.authorize_url
-		log 'and send /me oauth <PIN>'
-	end
-
-	def on_authorized
-		retry_count = 0
-		begin
-			@me = api("account/update_profile") #api("account/verify_credentials")
-		rescue APIFailed => e
-			@log.error e.inspect
-			sleep 1
-			retry_count += 1
-			retry if retry_count < 3
-			log "Failed to access API 3 times." <<
-			    " Please check your username/email and password combination, " <<
-			    " Twitter Status <http://status.twitter.com/> and try again later."
-			finish
-		end
-
-		@prefix = prefix(@me)
-		@user   = @prefix.user
-		@host   = @prefix.host
-
-		#post NICK, @me.screen_name if @nick != @me.screen_name
-		post server_name, MODE, @nick, "+o"
-		post @prefix, JOIN, main_channel
-		post server_name, MODE, main_channel, "+mto", @nick
-		post server_name, MODE, main_channel, "+q", @nick
-		if @me.status
-			post @prefix, TOPIC, main_channel, generate_status_message(@me.status.text)
-		end
-
-		log "Client options: #{@opts.marshal_dump.inspect}"
-		@log.info "Client options: #{@opts.inspect}"
-
-		@opts.tid = begin
-			c = @opts.tid # expect: 0..15, true, "0,1"
-			b = nil
-			c, b = c.split(",", 2).map {|i| i.to_i } if c.respond_to? :split
-			c = 10 unless (0 .. 15).include? c # 10: teal
-			if (0 .. 15).include?(b)
-				"\003%.2d,%.2d[%%s]\017" % [c, b]
-			else
-				"\003%.2d[%%s]\017"      % c
-			end
-		end if @opts.tid
-
-		check_friends
-		@ratelimit.register(:check_friends, 3600)
-		@check_friends_thread = Thread.start do
-			loop do
-				sleep @ratelimit.interval(:check_friends)
-				begin
-					check_friends
-				rescue APIFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-			end
-		end
-
-		if @opts.clientspoofing
-			update_sources
 		else
-			@sources = [api_source]
-		end
-
-		update_redundant_suffix
-		@check_updates_thread = Thread.start do
-			sleep 30
-
-			loop do
-				begin
-					@log.info "check_updates"
-					update_redundant_suffix
-					check_updates
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep 0.01 * (90 + rand(21)) *
-				      (@opts.check_updates_interval || 86400) # 0.9 ... 1.1 day
-			end
-
-			sleep @opts.check_updates_interval || 86400
-		end
-
-		unless @chirp_thread
 			@ratelimit.register(:timeline, 30)
 			@check_timeline_thread = Thread.start do
 				sleep 2 * (@me.friends_count / 100.0).ceil
@@ -595,99 +692,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 			end
 		end
-
-		@ratelimit.register(:dm, 600)
-		@check_dms_thread = Thread.start do
-			loop do
-				begin
-					if check_direct_messages
-						@ratelimit.incr(:dm)
-					else
-						@ratelimit.decr(:dm)
-					end
-				rescue APIFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep @ratelimit.interval(:dm)
-			end
-		end if @opts.dm
-
-		@ratelimit.register(:mentions, 180)
-		@check_mentions_thread = Thread.start do
-			sleep @ratelimit.interval(:timeline)
-
-			loop do
-				begin
-					if check_mentions
-						@ratelimit.incr(:mentions)
-					else
-						@ratelimit.decr(:mentions)
-					end
-				rescue APIFailed => e
-					@log.error e.inspect
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep @ratelimit.interval(:mentions)
-			end
-		end if @opts.mentions
-
-		@ratelimit.register(:lists, 60 * 60)
-		@check_lists_thread = Thread.start do
-			sleep 60
-			Thread.current[:last_updated] = Time.at(0)
-			loop do
-				begin
-					@log.info "LISTS update now..."
-					if check_lists
-						@ratelimit.incr(:lists)
-					else
-						@ratelimit.decr(:lists)
-					end
-					Thread.current[:last_updated] = Time.now
-
-					sleep @ratelimit.interval(:lists)
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-					sleep 60
-				end
-			end
-		end
-
-		@ratelimit.register(:lists_status, 60 * 5)
-		@check_lists_status_thread = Thread.start do
-			Thread.current[:last_updated] = Time.at(0)
-			loop do
-				begin
-					@log.info "lists/status update now... #{@channels.size}"
-					## TODO 各リストにつき limit が必要
-					if check_lists_status
-						@ratelimit.incr(:lists_status)
-					else
-						@ratelimit.decr(:lists_status)
-					end
-					Thread.current[:last_updated] = Time.now
-				rescue Exception => e
-					@log.error e.inspect
-					e.backtrace.each do |l|
-						@log.error "\t#{l}"
-					end
-				end
-				sleep @ratelimit.interval(:lists_status)
-			end
-		end
-
 	end
 
 	def on_disconnected
@@ -1055,6 +1059,12 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		else
 			oauth_request
 		end
+	end
+
+	ctcp_action "tl_method" do |target, mesg, command, args|
+		@opts.chirp = !@opts.chirp
+		log "Changed Timeline retrieving method: Using ChripUserStream: #{@opts.chirp}"
+		start_timeline_thread(@opts.chirp)
 	end
 
 	ctcp_action "reload" do |target, mesg, command, args|
@@ -1990,7 +2000,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				blip\.fm/~ (?> [0-9a-z]+) (?! /) |
 				flic\.kr/[a-z0-9/]+
 			)
-		}ix) {|url| "#{resolve_http_redirect(URI(url)) || url}" }
+		}ix) {|url|
+			expanded = resolve_http_redirect(URI(url))
+			if %w|http https|.include? expanded.scheme 
+				expanded.to_s
+			else
+				"#{expanded.scheme}: #{url}"
+			end
+		}
 	end
 
 	def bitlify(text)
