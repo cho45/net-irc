@@ -235,8 +235,8 @@ end
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
-	CONSUMER_KEY    = 'D0HAkxVRFhOm1tx7QwUcGA'
-	CONSUMER_SECRET = 'u9tcglo9QHVGRfQx3DCaYbtz0aQfsLuISKpjdiC2h4'
+	CONSUMER_KEY    = 'ZxRg3rGeqE68Tqkz9nhmA'
+	CONSUMER_SECRET = 'GaJsr2jfjUYIHaPc01UqiqMlvUJPCL5z5uPQM5T418'
 
 	class UnauthorizedException < Exception; end
 
