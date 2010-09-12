@@ -276,7 +276,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def api_base(secure = true)
-		URI("http#{"s" if secure}://twitter.com/")
+		URI("http#{"s" if secure}://api.twitter.com/")
 	end
 
 	def api_source
@@ -341,7 +341,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@consumer = OAuth::Consumer.new(
 			CONSUMER_KEY,
 			CONSUMER_SECRET,
-			:site => 'https://twitter.com'
+			:site => 'https://api.twitter.com'
 		)
 
 		begin
