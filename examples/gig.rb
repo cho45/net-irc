@@ -45,7 +45,7 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 
 	def initialize(*args)
 		super
-		@last_retrieved = Time.at(0)
+		@last_retrieved = Time.now
 	end
 
 	def on_disconnected
@@ -64,6 +64,7 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 				else                               value
 			end
 		}
+		post @nick, JOIN, main_channel
 
 		@retrieve_thread = Thread.start do
 			loop do
