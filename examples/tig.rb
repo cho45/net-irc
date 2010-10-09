@@ -593,20 +593,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 												@me = user
 											else
 												if @friends
-													b = false
 													@friends.each_with_index do |friend, i|
-														if b = friend.id == user.id
+														if friend.id == user.id
 															if friend.screen_name != user.screen_name
 																post prefix(friend), NICK, user.screen_name
 															end
 															@friends[i] = user
 															break
 														end
-													end
-													unless b
-														join main_channel, [user]
-														@friends << user
-														@me.friends_count += 1
 													end
 												end
 
@@ -1648,20 +1642,14 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				@me = user
 			else
 				if @friends
-					b = false
 					@friends.each_with_index do |friend, i|
-						if b = friend.id == user.id
+						if friend.id == user.id
 							if friend.screen_name != user.screen_name
 								post prefix(friend), NICK, user.screen_name
 							end
 							@friends[i] = user
 							break
 						end
-					end
-					unless b
-						join main_channel, [user]
-						@friends << user
-						@me.friends_count += 1
 					end
 				end
 
