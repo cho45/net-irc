@@ -555,97 +555,101 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			@chirp_thread = Thread.start do
 				retry_count = 0
 				begin
-					uri = URI.parse('http://chirpstream.twitter.com/2b/user.json')
+					uri = URI.parse('https://userstream.twitter.com/2/user.json?replies=all')
+
+					http = Net::HTTP.new(uri.host, uri.port)
+					http.use_ssl = true
+					http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+					http.cert_store = @cert_store
 					req = Net::HTTP::Get.new(uri.request_uri)
-					req.basic_auth(@nick, @pass)
-					Net::HTTP.start(uri.host, uri.port) do |http|
-						http.request(req) do |res|
-							raise UnauthorizedException if res.code.to_i == 401
-							raise res.code unless res.code.to_i == 200
+					req.oauth!(http, @consumer, @access_token)
+					http.request(req) do |res|
+						raise UnauthorizedException if res.code.to_i == 401
+						raise res.code unless res.code.to_i == 200
 
-							retry_count = 0
-							buf = ""
-							res.read_body do |str|
-								buf << str
-								buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
-									data = JSON.parse(chunk) rescue {}
-									struct = TwitterStruct.make(data)
+						retry_count = 0
+						buf = ""
+						res.read_body do |str|
+							buf << str
+							buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
+								data = JSON.parse(chunk) rescue {}
+								struct = TwitterStruct.make(data)
 
-									begin
-										case
-										when data['text']
-											status = struct
-											id = @latest_id = status.id
-											unless @timeline.any? {|tid, s| s.id == id }
-												user = status.user
-												tid  = @timeline.push(status)
-												tid  = nil unless @opts.tid
+								begin
+									case
+									when data['text']
+										status = struct
+										id = @latest_id = status.id
+										unless @timeline.any? {|tid, s| s.id == id }
+											user = status.user
+											tid  = @timeline.push(status)
+											tid  = nil unless @opts.tid
 
-												if user.id == @me.id
-													mesg = generate_status_message(status.text)
-													mesg << " " << @opts.tid % tid if tid
-													post @prefix, TOPIC, main_channel, mesg
+											if user.id == @me.id
+												mesg = generate_status_message(status.text)
+												mesg << " " << @opts.tid % tid if tid
+												post @prefix, TOPIC, main_channel, mesg
 
-													@me = user
-												else
-													if @friends
-														b = false
-														@friends.each_with_index do |friend, i|
-															if b = friend.id == user.id
-																if friend.screen_name != user.screen_name
-																	post prefix(friend), NICK, user.screen_name
-																end
-																@friends[i] = user
-																break
+												@me = user
+											else
+												if @friends
+													b = false
+													@friends.each_with_index do |friend, i|
+														if b = friend.id == user.id
+															if friend.screen_name != user.screen_name
+																post prefix(friend), NICK, user.screen_name
 															end
-														end
-														unless b
-															join main_channel, [user]
-															@friends << user
-															@me.friends_count += 1
+															@friends[i] = user
+															break
 														end
 													end
-
-													message(status, main_channel, tid, nil, PRIVMSG)
+													unless b
+														join main_channel, [user]
+														@friends << user
+														@me.friends_count += 1
+													end
 												end
-												@channels.each do |name, channel|
-													if channel[:members].find{|m| m.screen_name == user.screen_name }
-														message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
-													end
+
+												message(status, main_channel, tid, nil, PRIVMSG)
+											end
+											@channels.each do |name, channel|
+												if channel[:members].find{|m| m.screen_name == user.screen_name }
+													message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
 												end
 											end
-										when data['friends']
-										when data['delete']
-											# TODO
-										when data['event'] == 'follow'
-											message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
-												data['target']['screen_name'],
-												data['target']['screen_name']
-											])
-										when data['event'] == 'retweet'
-											# status event include this event
-										when data['event'] == 'favorite'
-											message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
-												data['target_object']['user']['screen_name'],
-												data['target_object']['text'],
-												data['target_object']['user']['screen_name']
-											])
-										when data['event'] == 'unfavorite'
-											message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
-												data['target_object']['user']['screen_name'],
-												data['target_object']['text'],
-												data['target_object']['user']['screen_name']
-											])
-										else
 										end
-									rescue Exception => e
-										@log.error e.inspect
-										e.backtrace.each do |l|
-											@log.error "\t#{l}"
-										end
+									when data['friends']
+									when data['delete']
+										# TODO
+									when data['event'] == 'follow'
+										message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
+											data['target']['screen_name'],
+											data['target']['screen_name']
+										])
+									when data['event'] == 'retweet'
+										# status event include this event
+									when data['event'] == 'favorite'
+										next if data['source']['screen_name'] == "amachang" # CAY (countermeasures against youpy)
+										message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
+										])
+									when data['event'] == 'unfavorite'
+										message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
+										])
+									else
 									end
-									''
+								rescue Exception => e
+									@log.error e.inspect
+									e.backtrace.each do |l|
+										@log.error "\t#{l}"
+									end
 								end
+								''
 							end
 						end
 					end
@@ -2526,20 +2530,20 @@ class String
 end
 
 module URI::Escape
-	alias :_orig_escape :escape
-
-	if defined? ::RUBY_REVISION and RUBY_REVISION < 24544
-		# URI.escape("あ１") #=> "%E3%81%82\xEF\xBC\x91"
-		# URI("file:///４")  #=> #<URI::Generic:0x9d09db0 URL:file:/４>
-		#   "\\d" -> "[0-9]" for Ruby 1.9
-		def escape str, unsafe = %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]]}
-			_orig_escape(str, unsafe)
-		end
-		alias :encode :escape
-	end
+#	alias :_orig_escape :escape
+#
+#	if defined? ::RUBY_REVISION and RUBY_REVISION < 24544
+#		# URI.escape("あ１") #=> "%E3%81%82\xEF\xBC\x91"
+#		# URI("file:///４")  #=> #<URI::Generic:0x9d09db0 URL:file:/４>
+#		#   "\\d" -> "[0-9]" for Ruby 1.9
+#		def escape str, unsafe = %r{[^-_.!~*'()a-zA-Z0-9;/?:@&=+$,\[\]]}
+#			_orig_escape(str, unsafe)
+#		end
+#		alias :encode :escape
+#	end
 
 	def encode_component str, unsafe = /[^-_.!~*'()a-zA-Z0-9 ]/
-		_orig_escape(str, unsafe).tr(" ", "+")
+		escape(str, unsafe).tr(" ", "+")
 	end
 
 	def rstrip str
