@@ -14,6 +14,7 @@ $KCODE = "u" unless defined? ::Encoding
 
 require "rubygems"
 require "net/irc"
+require "net/https"
 require "logger"
 require "pathname"
 require "libxml"
@@ -46,6 +47,8 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 	def initialize(*args)
 		super
 		@last_retrieved = Time.now
+		@cert_store = OpenSSL::X509::Store.new
+		@cert_store.set_default_paths
 	end
 
 	def on_disconnected
@@ -70,7 +73,15 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 			loop do
 				begin
 					@log.info 'retrieveing feed...'
-					doc = LibXML::XML::Document.file("http://github.com/#{@real}.private.atom?token=#{@pass}")
+					uri = URI.parse("https://github.com/#{@real}.private.atom?token=#{@pass}")
+					http = Net::HTTP.new(uri.host, uri.port)
+					http.use_ssl = true
+					http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+					http.cert_store = @cert_store
+					req = Net::HTTP::Get.new(uri.request_uri)
+					res = http.request(req)
+
+					doc = LibXML::XML::Document.string(res.body, :base_uri => uri.to_s)
 					ns  = %w|a:http://www.w3.org/2005/Atom|
 					entries = []
 					doc.find('/a:feed/a:entry', ns).each do |n|
@@ -98,6 +109,7 @@ class ServerLogIrcGateway < Net::IRC::Server::Session
 					e.backtrace.each do |l|
 						@log.error "\t#{l}"
 					end
+					sleep 10
 				end
 			end
 		end
