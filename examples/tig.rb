@@ -214,6 +214,7 @@ when File.directory?(File.expand_path("lib", ".."))
 	$LOAD_PATH << File.expand_path("lib", "..")
 end
 
+require "pp"
 require "rubygems"
 require "net/irc"
 require "net/https"
@@ -235,6 +236,8 @@ end
 module Net::IRC::Constants; RPL_WHOISBOT = "335"; RPL_CREATEONTIME = "329"; end
 
 class TwitterIrcGateway < Net::IRC::Server::Session
+	CONFIG_DIR = Pathname.new("~/.tig.rb").expand_path
+
 	CONSUMER_KEY    = 'ZxRg3rGeqE68Tqkz9nhmA'
 	CONSUMER_SECRET = 'GaJsr2jfjUYIHaPc01UqiqMlvUJPCL5z5uPQM5T418'
 
@@ -313,6 +316,48 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@cert_store.set_default_paths
 	end
 
+	def config(&block)
+		# merge local (user) config and global config
+		merged = {}
+		global = {}
+		local  = {}
+
+		global_config = CONFIG_DIR + "config"
+		begin
+			global = eval(global_config.read) || {}
+		rescue Errno::ENOENT
+		end
+
+		local_config  = @real ? CONFIG_DIR + "#{@real}/config" : nil
+		if local_config
+			begin
+				local = eval(local_config.read) || {}
+			rescue Errno::ENOENT
+			end
+		end
+
+		merged.update(global)
+		merged.update(local)
+
+		if block
+			merged.instance_eval(&block)
+			merged.each do |k, v|
+				unless global[k] == v
+					local[k] = v
+				end
+			end
+
+			if local_config
+				local_config.parent.mkpath
+				local_config.open('w') do |f|
+					PP.pp(local, f)
+				end
+			end
+		end
+
+		merged
+	end
+
 	def on_user(m)
 		super
 
@@ -335,7 +380,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			$&.sub(/[^:@]+(?=@)/, "********")
 		end if @opts.httpproxy
 
-		@timeline = TypableMap.new(@opts.tmap_size     || 10_404,
+		@timeline = TypableMap.new(@opts.tmap_size     || 200,
 		                           @opts.shuffled_tmap || false)
 
 		@consumer = OAuth::Consumer.new(
@@ -705,11 +750,16 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 	def on_privmsg(m)
 		target, mesg = *m.params
-
 		m.ctcps.each {|ctcp| on_ctcp(target, ctcp) } if m.ctcp?
 
 		return if mesg.empty?
 		return on_ctcp_action(target, mesg) if mesg.sub!(/\A +/, "") #and @opts.direct_action
+
+		if include_ngword?(mesg)
+			log "The message includes NG words, was ignored."
+			return
+		end
+
 
 		command, params = mesg.split(" ", 2)
 		case command.downcase # TODO: escape recursive
@@ -1041,6 +1091,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 	end
 
+	def include_ngword?(msg)
+		msg = msg.dup.encoding!("UTF-8")
+		if config['ngword'] && config['ngword'].size > 0
+			msg =~ /#{config['ngword'].map {|i| Regexp.quote(i) }.join('|')}/
+		else
+			false
+		end
+	end
+
 	ctcp_action "oauth" do |target, mesg, command, args|
 		if args.length == 1
 			pin = args.first
@@ -1051,11 +1110,31 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "Congrats! OAuth Verified: #{@access_token.params[:screen_name]}"
 				on_authorized
 			rescue OAuth::Unauthorized
-				log "Invalid PIN was inputted. Please retry"
+				log "Invalid PIN was input. Please retry"
 				oauth_request
 			end
 		else
 			oauth_request
+		end
+	end
+
+	ctcp_action "ngword" do |target, mesg, command, args|
+		meth, word = *args
+		case meth
+		when 'add'
+			config {
+				(self['ngword'] ||= []) << word
+			}
+		when 'del'
+			config {
+				(self['ngword'] ||= []).reject! {|w| w == word }
+			}
+		when 'inc?'
+			if word =~ /#{(config['ngword'] || []).map {|i| Regexp.quote(i) }.join('|')}/
+				log "#{word} is included"
+			else
+				log "#{word} is not included"
+			end
 		end
 	end
 
