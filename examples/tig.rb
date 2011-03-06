@@ -389,17 +389,23 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			:site => 'https://api.twitter.com'
 		)
 
-		begin
-			@access_token = @consumer.get_access_token(nil, {}, {
-				:x_auth_mode     => "client_auth",
-				:x_auth_username => @real,
-				:x_auth_password => @pass,
-			})
+		@log.debug config.inspect
+		if config['access_token']
+			@access_token = OAuth::AccessToken.new(@consumer, config['access_token'], config['access_token_secret'])
 			on_authorized
-		rescue OAuth::Unauthorized
-			log 'Failed trying xAuth'
-			oauth_request
-		end
+		else
+			begin
+				@access_token = @consumer.get_access_token(nil, {}, {
+					:x_auth_mode     => "client_auth",
+					:x_auth_username => @real,
+					:x_auth_password => @pass,
+				})
+				on_authorized
+			rescue OAuth::Unauthorized
+				log 'Failed trying xAuth'
+				oauth_request
+			end
+		end 
 	end
 
 	def oauth_request
@@ -418,9 +424,9 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			retry_count += 1
 			retry if retry_count < 3
 			log "Failed to access API 3 times." <<
-			    " Please check your username/email and password combination, " <<
+			    " Please retry oauth verification or" <<
 			    " Twitter Status <http://status.twitter.com/> and try again later."
-			finish
+			oauth_request
 		end
 
 		@prefix = prefix(@me)
@@ -608,90 +614,95 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					http.cert_store = @cert_store
 					req = Net::HTTP::Get.new(uri.request_uri)
 					req.oauth!(http, @consumer, @access_token)
-					http.request(req) do |res|
-						raise UnauthorizedException if res.code.to_i == 401
-						raise res.code unless res.code.to_i == 200
+					timeout(60 * 30) do
+						http.request(req) do |res|
+							raise UnauthorizedException if res.code.to_i == 401
+							raise res.code unless res.code.to_i == 200
 
-						retry_count = 0
-						buf = ""
-						res.read_body do |str|
-							buf << str
-							buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
-								data = JSON.parse(chunk) rescue {}
-								struct = TwitterStruct.make(data)
+							retry_count = 0
+							buf = ""
+							res.read_body do |str|
+								buf << str
+								buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
+									data = JSON.parse(chunk) rescue {}
+									struct = TwitterStruct.make(data)
 
-								begin
-									case
-									when data['text']
-										status = struct
-										id = @latest_id = status.id
-										unless @timeline.any? {|tid, s| s.id == id }
-											user = status.user
-											tid  = @timeline.push(status)
-											tid  = nil unless @opts.tid
+									begin
+										case
+										when data['text']
+											status = struct
+											id = @latest_id = status.id
+											unless @timeline.any? {|tid, s| s.id == id }
+												user = status.user
+												tid  = @timeline.push(status)
+												tid  = nil unless @opts.tid
 
-											if user.id == @me.id
-												mesg = generate_status_message(status.text)
-												mesg << " " << @opts.tid % tid if tid
-												post @prefix, TOPIC, main_channel, mesg
+												if user.id == @me.id
+													mesg = generate_status_message(status.text)
+													mesg << " " << @opts.tid % tid if tid
+													post @prefix, TOPIC, main_channel, mesg
 
-												@me = user
-											else
-												if @friends
-													@friends.each_with_index do |friend, i|
-														if friend.id == user.id
-															if friend.screen_name != user.screen_name
-																post prefix(friend), NICK, user.screen_name
+													@me = user
+												else
+													if @friends
+														@friends.each_with_index do |friend, i|
+															if friend.id == user.id
+																if friend.screen_name != user.screen_name
+																	post prefix(friend), NICK, user.screen_name
+																end
+																@friends[i] = user
+																break
 															end
-															@friends[i] = user
-															break
 														end
 													end
-												end
 
-												message(status, main_channel, tid, nil, PRIVMSG)
-											end
-											@channels.each do |name, channel|
-												if channel[:members].find{|m| m.screen_name == user.screen_name }
-													message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
+													message(status, main_channel, tid, nil, PRIVMSG)
+												end
+												@channels.each do |name, channel|
+													if channel[:members].find{|m| m.screen_name == user.screen_name }
+														message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
+													end
 												end
 											end
+										when data['friends']
+										when data['delete']
+											# TODO
+										when data['event'] == 'follow'
+											message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
+												data['target']['screen_name'],
+												data['target']['screen_name']
+											])
+										when data['event'] == 'retweet'
+											# status event include this event
+										when data['event'] == 'favorite'
+											next if data['source']['screen_name'] == "amachang" # CAY (countermeasures against youpy)
+											message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
+												data['target_object']['user']['screen_name'],
+												data['target_object']['text'],
+												data['target_object']['user']['screen_name']
+											])
+										when data['event'] == 'unfavorite'
+											message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
+												data['target_object']['user']['screen_name'],
+												data['target_object']['text'],
+												data['target_object']['user']['screen_name']
+											])
+										else
 										end
-									when data['friends']
-									when data['delete']
-										# TODO
-									when data['event'] == 'follow'
-										message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
-											data['target']['screen_name'],
-											data['target']['screen_name']
-										])
-									when data['event'] == 'retweet'
-										# status event include this event
-									when data['event'] == 'favorite'
-										next if data['source']['screen_name'] == "amachang" # CAY (countermeasures against youpy)
-										message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
-											data['target_object']['user']['screen_name'],
-											data['target_object']['text'],
-											data['target_object']['user']['screen_name']
-										])
-									when data['event'] == 'unfavorite'
-										message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
-											data['target_object']['user']['screen_name'],
-											data['target_object']['text'],
-											data['target_object']['user']['screen_name']
-										])
-									else
+									rescue Exception => e
+										@log.error e.inspect
+										e.backtrace.each do |l|
+											@log.error "\t#{l}"
+										end
 									end
-								rescue Exception => e
-									@log.error e.inspect
-									e.backtrace.each do |l|
-										@log.error "\t#{l}"
-									end
+									''
 								end
-								''
 							end
 						end
 					end
+				rescue TimeoutError => e
+					@log.debug "stream api timeout: retry"
+					retry
 				rescue UnauthorizedException => e
 					@chirp_thread = nil
 				rescue Exception => e
@@ -1104,10 +1115,15 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		if args.length == 1
 			pin = args.first
 			begin
-				@access_token = @request_token.get_access_token(
+				access_token = @request_token.get_access_token(
 					:oauth_verifier => pin
 				)
-				log "Congrats! OAuth Verified: #{@access_token.params[:screen_name]}"
+				config {
+					self['access_token'] = access_token.token
+					self['access_token_secret'] = access_token.secret
+				}
+				log "Congrats! OAuth Verified: #{access_token.params[:screen_name]}"
+				@access_token = access_token
 				on_authorized
 			rescue OAuth::Unauthorized
 				log "Invalid PIN was input. Please retry"
@@ -1910,7 +1926,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			unless hourly_limit.zero?
 				if @limit != hourly_limit
 					msg = "The rate limit per hour was changed: #{@limit} to #{hourly_limit}"
-					log msg
 					@log.info msg
 					@limit = hourly_limit
 				end
@@ -2091,11 +2106,10 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		end
 		return text if longurls.empty?
 
-		bitly = URI("http://api.bit.ly/shorten")
+		bitly = URI("http://api.bit.ly/v3/shorten")
 		if login and key
-			bitly.path  = "/shorten"
 			bitly.query = {
-				:version => "2.0.1", :format => "json", :longUrl => longurls,
+				:format => "json", :longUrl => longurls,
 			}.to_query_str(";")
 			@log.debug bitly
 			req = http_req(:get, bitly, {}, [login, key])
@@ -2107,15 +2121,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				text.gsub!(longurl) do
 					res[$&] && res[$&]["shortUrl"] || $&
 				end
-			end
-		else
-			bitly.path = "/api"
-			longurls.each do |longurl|
-				bitly.query = { :url => longurl }.to_query_str
-				@log.debug bitly
-				req = http_req(:get, bitly)
-				res = http(bitly, 5, 5).request(req)
-				text.gsub!(longurl, res.body)
 			end
 		end
 
