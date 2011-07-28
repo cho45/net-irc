@@ -132,6 +132,7 @@ class HatenaCounterIrcGateway < Net::IRC::Server::Session
 							post access.ua_id, PRIVMSG, channel, "%s %s" % [access.request, access.host.gsub(/(\.\d+)+\./, '..').sub(/^[^.]+/, '')]
 							info[:time] = access.time
 						end
+						info[:time] += 1
 					end
 					unless ret.code.to_i == 200
 						post nil, NOTICE, channel, "Server returned #{code}. Please refresh rk by /me rk [new rk]"
