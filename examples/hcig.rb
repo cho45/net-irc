@@ -23,6 +23,8 @@ Net::HTTP.version_1_2
 Thread.abort_on_exception = true
 
 class HatenaCounterIrcGateway < Net::IRC::Server::Session
+	COLORS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
 	def server_name
 		"hcig"
 	end
@@ -129,7 +131,26 @@ class HatenaCounterIrcGateway < Net::IRC::Server::Session
 							access = Access.new(*tr.search('td').map {|i| i.text.gsub("\302\240", ' ').gsub(/^\s+|\s+$/, '') })
 							next unless access.time
 							next if access.time < info[:time]
-							post access.ua_id, PRIVMSG, channel, "%s %s" % [access.request, access.host.gsub(/(\.\d+)+\./, '..').sub(/^[^.]+/, '')]
+
+							diff = Time.now - access.time
+							time = nil
+							case
+							when diff < 90
+								time = ''
+							when Time.now.strftime('%Y%m%d') == access.time.strftime('%Y%m%d')
+								time = access.time.strftime('%H:%M')
+							when Time.now.strftime('%Y') == access.time.strftime('%Y')
+								time = access.time.strftime('%m/%d %H:%M')
+							else
+								time = access.time.strftime('%Y/%m/%d %H:%M')
+							end
+
+							post access.ua_id, PRIVMSG, channel, "%s%s \003%.2d%s\017" % [
+								time.empty?? "" : "#{time} ",
+								access.request,
+								COLORS[access.ua_id(COLORS.size)],
+								access.host.gsub(/(\.\d+)+\./, '..').sub(/^[^.]+/, '')
+							]
 							info[:time] = access.time
 						end
 						info[:time] += 1
@@ -169,8 +190,12 @@ class HatenaCounterIrcGateway < Net::IRC::Server::Session
 			@digest ||= Digest::SHA1.digest([ua, lang, screen, hostc].join("\n"))
 		end
 
-		def ua_id
-			@ua_id ||= [ digest ].pack('m')[0, 7]
+		def ua_id(num=nil)
+			if num
+				digest.unpack("N*")[0] % num
+			else
+				@ua_id ||= [ digest ].pack('m')[0, 7]
+			end
 		end
 	end
 
