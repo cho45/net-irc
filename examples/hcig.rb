@@ -3,6 +3,7 @@
 
 $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
+$LOAD_PATH.concat Dir.glob("/usr/local/ruby1.9/lib/ruby/gems/1.9.1/gems/*/lib")
 
 $KCODE = "u" if RUBY_VERSION < "1.9" # json use this
 
@@ -18,6 +19,7 @@ require 'stringio'
 require 'zlib'
 require 'mechanize'
 require 'digest/sha1'
+
 
 Net::HTTP.version_1_2
 Thread.abort_on_exception = true
@@ -52,8 +54,12 @@ class HatenaCounterIrcGateway < Net::IRC::Server::Session
 	def on_user(m)
 		super
 		@real, *@opts = @real.split(/\s+/)
-		self.rk = @real
 		@opts ||= []
+	end
+
+	def on_pass(m)
+		super
+		self.rk = @pass
 	end
 
 	def on_join(m)
