@@ -148,7 +148,7 @@ class ThreadData
 
 			uri = "http://#{@uri.host}/test/read.cgi/#{@board}/#{dat}/"
 
-			subject, n = */(.+?) \((\d+)\)/.match(rest).captures
+			subject, n = */(.*?) \((\d+)\)/.match(rest).captures
 			canonical_subject = canonicalize_subject(subject)
 			thread_rev     = canonical_subject[/\d+/].to_i
 
