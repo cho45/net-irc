@@ -2337,7 +2337,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def http_req(method, uri, header = {}, credentials = nil)
-		accepts = ["*/*;q=0.1"]
+		accepts = ["*/*"]
 		#require "mime/types"; accepts.unshift MIME::Types.of(uri.path).first.simplified
 		types   = { "json" => "application/json", "txt" => "text/plain" }
 		ext     = uri.path[/[^.]+\z/]
