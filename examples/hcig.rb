@@ -161,8 +161,9 @@ class HatenaCounterIrcGateway < Net::IRC::Server::Session
 						end
 						info[:time] += 1
 					end
-					unless ret.code.to_i == 200
-						post nil, NOTICE, channel, "Server returned #{code}. Please refresh rk by /me rk [new rk]"
+					unless ret.code.to_i == 200 && ret.uri.to_s == uri
+						@log.error "Server returned [#{ret.code}] #{ret.uri}"
+						post nil, NOTICE, channel, "Server returned [#{ret.code}] #{ret.uri}. Please refresh rk by /me rk [new rk]"
 					end
 				rescue Exception => e
 					@log.error "Error: #{e.inspect}"
