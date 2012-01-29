@@ -137,6 +137,8 @@ Set 0 to disable checking.
 
 ### with_retweets
 
+### without_lists
+
 ## Extended commands through the CTCP ACTION
 
 ### list (ls)
@@ -572,7 +574,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					sleep 60
 				end
 			end
-		end
+		end unless @opts.without_lists
 
 		@ratelimit.register(:lists_status, 60 * 5)
 		@check_lists_status_thread = Thread.start do
@@ -595,7 +597,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				end
 				sleep @ratelimit.interval(:lists_status)
 			end
-		end
+		end unless @opts.without_lists
 	end
 
 	def start_timeline_thread(chirp=false)
@@ -614,94 +616,107 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					http.cert_store = @cert_store
 					req = Net::HTTP::Get.new(uri.request_uri)
 					req.oauth!(http, @consumer, @access_token)
-					timeout(60 * 30) do
-						http.request(req) do |res|
-							raise UnauthorizedException if res.code.to_i == 401
-							raise res.code unless res.code.to_i == 200
 
-							retry_count = 0
-							buf = ""
-							res.read_body do |str|
-								buf << str
-								buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
-									data = JSON.parse(chunk) rescue {}
-									struct = TwitterStruct.make(data)
+					@chirp_timer_thread.kill rescue nil
+					@chirp_timer_thread = Thread.start do
+						loop do
+							@log.info "check unresponsive_time"
+							unresponsive_time = Time.now - Thread.current[:timer]
+							if unresponsive_time > 90
+								raise TimeoutError
+							else
+								sleep 90 - unresponsive_time
+							end
+						end
+					end
+					@chirp_timer_thread[:timer] = Time.now
 
-									begin
-										case
-										when data['text']
-											status = struct
-											id = @latest_id = status.id
-											unless @timeline.any? {|tid, s| s.id == id }
-												user = status.user
-												tid  = @timeline.push(status)
-												tid  = nil unless @opts.tid
+					http.request(req) do |res|
+						raise UnauthorizedException if res.code.to_i == 401
+						raise res.code unless res.code.to_i == 200
 
-												if user.id == @me.id
-													mesg = generate_status_message(status.text)
-													mesg << " " << @opts.tid % tid if tid
-													post @prefix, TOPIC, main_channel, mesg
+						buf = ""
+						res.read_body do |str|
+							@chirp_timer_thread[:timer] = Time.now # update timer
+							buf << str
+							buf.gsub!(/[\s\S]+?\r\n/) do |chunk|
+								data = JSON.parse(chunk) rescue {}
+								struct = TwitterStruct.make(data)
 
-													@me = user
-												else
-													if @friends
-														@friends.each_with_index do |friend, i|
-															if friend.id == user.id
-																if friend.screen_name != user.screen_name
-																	post prefix(friend), NICK, user.screen_name
-																end
-																@friends[i] = user
-																break
+								begin
+									case
+									when data['text']
+										status = struct
+										id = @latest_id = status.id
+										unless @timeline.any? {|tid, s| s.id == id }
+											user = status.user
+											tid  = @timeline.push(status)
+											tid  = nil unless @opts.tid
+
+											if user.id == @me.id
+												mesg = generate_status_message(status.text)
+												mesg << " " << @opts.tid % tid if tid
+												post @prefix, TOPIC, main_channel, mesg
+
+												@me = user
+											else
+												if @friends
+													@friends.each_with_index do |friend, i|
+														if friend.id == user.id
+															if friend.screen_name != user.screen_name
+																post prefix(friend), NICK, user.screen_name
 															end
+															@friends[i] = user
+															break
 														end
 													end
-
-													message(status, main_channel, tid, nil, PRIVMSG)
 												end
-												@channels.each do |name, channel|
-													if channel[:members].find{|m| m.screen_name == user.screen_name }
-														message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
-													end
+
+												message(status, main_channel, tid, nil, PRIVMSG)
+											end
+											@channels.each do |name, channel|
+												if channel[:members].find{|m| m.screen_name == user.screen_name }
+													message(status, name, tid, nil, (user.id == @me.id) ? NOTICE : PRIVMSG)
 												end
 											end
-										when data['friends']
-										when data['delete']
-											# TODO
-										when data['event'] == 'follow'
-											message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
-												data['target']['screen_name'],
-												data['target']['screen_name']
-											])
-										when data['event'] == 'retweet'
-											# status event include this event
-										when data['event'] == 'favorite'
-											next if data['source']['screen_name'] == "amachang" # CAY (countermeasures against youpy)
-											message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
-												data['target_object']['user']['screen_name'],
-												data['target_object']['text'],
-												data['target_object']['user']['screen_name']
-											])
-										when data['event'] == 'unfavorite'
-											message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
-												data['target_object']['user']['screen_name'],
-												data['target_object']['text'],
-												data['target_object']['user']['screen_name']
-											])
-										else
 										end
-									rescue Exception => e
-										@log.error e.inspect
-										e.backtrace.each do |l|
-											@log.error "\t#{l}"
-										end
+									when data['friends']
+									when data['delete']
+										# TODO
+									when data['event'] == 'follow'
+										message(struct, main_channel, nil, "\00311follow\017 => @%s http://twitter.com/%s" % [
+											data['target']['screen_name'],
+											data['target']['screen_name']
+										])
+									when data['event'] == 'retweet'
+										# status event include this event
+									when data['event'] == 'favorite'
+										next if data['source']['screen_name'] == "amachang" # CAY (countermeasures against youpy)
+										message(struct, main_channel, nil, "\00311favorite\017 => @%s : %s http://twitter.com/%s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
+										])
+									when data['event'] == 'unfavorite'
+										message(struct, main_channel, nil, "\00305unfavorite =>\017 @%s : %s http://twitter.com/%s" % [
+											data['target_object']['user']['screen_name'],
+											data['target_object']['text'],
+											data['target_object']['user']['screen_name']
+										])
+									else
 									end
-									''
+								rescue Exception => e
+									@log.error e.inspect
+									e.backtrace.each do |l|
+										@log.error "\t#{l}"
+									end
 								end
+								''
 							end
 						end
 					end
 				rescue TimeoutError => e
-					@log.debug "stream api timeout: retry"
+					@log.info "stream api timeout: retry"
 					retry
 				rescue UnauthorizedException => e
 					@chirp_thread = nil
@@ -757,6 +772,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		@check_lists_thread.kill        rescue nil
 		@check_lists_status_thread.kill rescue nil
 		@chirp_thread.kill              rescue nil
+		@chirp_timer_thread.kill        rescue nil
 	end
 
 	def on_privmsg(m)
@@ -2679,7 +2695,8 @@ if __FILE__ == $0
 	end
 
 	opts[:logger] = Logger.new(opts[:log], "daily")
-	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
+	# opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
+	opts[:logger].level = Logger::INFO
 
 	#def daemonize(foreground = false)
 	#	[:INT, :TERM, :HUP].each do |sig|
