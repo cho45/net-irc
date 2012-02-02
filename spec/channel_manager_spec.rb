@@ -4,7 +4,7 @@ $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
 require "rubygems"
-require "spec"
+require "rspec"
 require "thread"
 require "net/irc"
 require "net/irc/client/channel_manager"
