@@ -7,7 +7,21 @@ require 'rake/gempackagetask'
 require 'rake/rdoctask'
 require 'rake/contrib/sshpublisher'
 require 'fileutils'
-require 'spec/rake/spectask'
+# Adaptable to both RSpec 1 and 2
+rspec_version = nil
+begin
+  # for RSpec 2
+  require 'rspec/core/rake_task'
+  rspec_version = 2
+rescue LoadError
+  begin
+    # for RSpec 1
+    require 'spec/rake/spectask'
+    rspec_version = 1
+  rescue LoadError
+    puts "RSpec is not available."
+  end
+end
 
 include FileUtils
 
@@ -35,11 +49,22 @@ RDOC_OPTS = [
 
 task :default => [:spec]
 task :package => [:clean]
-
-Spec::Rake::SpecTask.new do |t|
-	t.spec_opts = ['--options', "spec/spec.opts"]
-	t.spec_files = FileList['spec/*_spec.rb']
-	#t.rcov = true
+if rspec_version then
+  case rspec_version
+  when 1
+    Spec::Rake::SpecTask.new do |t|
+      t.spec_opts = ['--options', "spec/spec.opts"]
+      t.spec_files = FileList['spec/*_spec.rb']
+      # t.rcov = true
+    end
+  when 2
+    RSpec::Core::RakeTask.new do |t|
+      t.rspec_opts = ['--options', "spec/spec.opts"]
+      # t.rcov = true
+    end 
+  else
+    raise "RSpec is not available."
+  end
 end
 
 spec = Gem::Specification.new do |s|
