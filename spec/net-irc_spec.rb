@@ -6,7 +6,7 @@ $LOAD_PATH << "lib"
 $LOAD_PATH << "../lib"
 
 require "rubygems"
-require "spec"
+require "rspec"
 require "net/irc"
 include Net::IRC
 include Constants
