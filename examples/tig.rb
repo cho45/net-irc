@@ -1,5 +1,4 @@
 #!/usr/bin/env ruby
-# vim:encoding=UTF-8:
 $KCODE = "u" unless defined? ::Encoding # json use this
 =begin
 
