@@ -1829,25 +1829,17 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 	end
 
 	def check_updates
-		uri = URI("http://github.com/api/v1/json/cho45/net-irc/commits/master")
+		uri = URI("https://api.github.com/repos/cho45/net-irc/commits/master")
 		@log.debug uri.inspect
 		res = http(uri).request(http_req(:get, uri))
 
-		commits = JSON.parse(res.body)['commits']
-		latest  = commits.first['id'][/^[0-9a-z]{40}$/]
+		latest = JSON.parse(res.body)['sha']
 
 		raise "github API changed?" unless latest
 
 		is_in_local_repos = system("git rev-parse --verify #{latest} > /dev/null 2>&1")
 		unless is_in_local_repos
-			current  = commits.map {|i| i['id'] }.index(server_version)
-			messages = commits[0..current].map {|i| i['message'] }
-
 			log "\002New version is available.\017 run 'git pull'."
-			messages[0, 3].each do |m|
-				log "  \002#{m[/.+/]}\017"
-			end
-			log "  ... and more. check it: http://bit.ly/79d33W" if messages.size > 3
 		end
 	rescue Errno::ECONNREFUSED, Timeout::Error => e
 		@log.error "Failed to get the latest revision of tig.rb from #{uri.host}: #{e.inspect}"
