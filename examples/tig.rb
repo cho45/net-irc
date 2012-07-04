@@ -622,7 +622,8 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 							@log.info "check unresponsive_time"
 							unresponsive_time = Time.now - Thread.current[:timer]
 							if unresponsive_time > 90
-								raise TimeoutError
+								@log.info "stream api timeout: re-start_timeline_thread"
+								start_timeline_thread(true)
 							else
 								sleep 90 - unresponsive_time
 							end
@@ -717,8 +718,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				rescue TimeoutError => e
 					@log.info "stream api timeout: retry"
 					retry
-				rescue UnauthorizedException => e
-					@chirp_thread = nil
 				rescue Exception => e
 					@log.error e.inspect
 					e.backtrace.each do |l|
