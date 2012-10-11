@@ -1294,7 +1294,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 				log "The status is already favorited! <#{permalink(s)}>"
 				next
 			end
-			res = api("favorites/#{method}/#{s.id}")
+			res = api("favorites/#{method}", { :id => s.id })
 			log "#{entered}: #{res.user.screen_name}: #{generate_status_message(res.text)}"
 			if method == "create"
 				@favorites.push res
@@ -1873,7 +1873,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			  | direct_messages/new \z
 			  | friendships/create/
 			  | account/(?: end_session \z | update_ )
-			  | favou?ri(?: ing | tes )/create/
+			  | favou?ri(?: ing | tes )/create
 			  | notifications/
                           | statuses/retweet/
 			  | blocks/create/
