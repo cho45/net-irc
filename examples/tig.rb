@@ -848,7 +848,6 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 					q.update :long => long.to_f
 				end
 
-				p [:update, q]
 				ret = api("statuses/update", q)
 				log oops(ret) if ret.truncated
 				ret.user.status = ret
@@ -1869,6 +1868,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 		case path.sub(/\.json$/, '')
 		when %r{
 			\A/
+			(?: 1/ | 1\.1/ )?
 			(?: status(?:es)?/update \z
 			  | direct_messages/new \z
 			  | friendships/create/
@@ -1882,7 +1882,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 			true
 		when %r{
 			\A/
-			(?: 1/#{@me.screen_name} )
+			(?: 1(\.1)?/#{@me.screen_name} )
 		}x
 			query.key? 'name' or query.key? '_method' or query.key? 'id'
 		end
@@ -1897,7 +1897,7 @@ class TwitterIrcGateway < Net::IRC::Server::Session
 
 		authenticate = opts.fetch(:authenticate, true)
 
-		path  = '/' + path
+		path  = '/1.1/' + path
 		path += ".json" if path != "users/username_available"
 
 		header      = {}
@@ -2685,7 +2685,7 @@ if __FILE__ == $0
 	end
 
 	opts[:logger] = Logger.new(opts[:log], "daily")
-	# opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
+	opts[:logger].level = opts[:debug] ? Logger::DEBUG : Logger::INFO
 	opts[:logger].level = Logger::INFO
 
 	#def daemonize(foreground = false)
