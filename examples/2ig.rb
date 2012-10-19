@@ -150,7 +150,7 @@ class NiChannelIrcGateway < Net::IRC::Server::Session
 		info = @channels[channel]
 		info[:observer].kill if info[:observer]
 
-		@log.debug "create_observer %s, interval %d" % [channel, info[:interval]]
+		@log.debug "create_observer %s, interval %d" % [channel, info[:interval].to_i]
 		info[:observer] = Thread.start(info, channel) do |info, channel|
 			Thread.pass
 
